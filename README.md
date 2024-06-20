@@ -1,7 +1,7 @@
 # fbsqlxx
 Headers-only C++ FirebirdSQL database client wrapper library
 
-## Dependecies
+## Dependencies
 FirebirdSQL database installation contains directories _<path>/include_ and _<path>/lib_, it's all we need.
 
 ## Samples
