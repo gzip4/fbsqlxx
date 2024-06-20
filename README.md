@@ -51,3 +51,16 @@ void create_table(fbsql::connection& conn)
 
 ```
 
+If some statement needs to be executed many times with different set of parameters, we can "prepare" it
+
+```c++
+static void action_insert_2_records(fbsql::transaction const& tr0)
+{
+    auto sql = "insert into test_table(id, text, val, val2) values(?, ?, ?, ?)";
+    auto st0 = tr0.query(sql);
+    st0.execute(3, "some text", 10.01f, 100500.001);
+    st0.execute(4, fbsql::octets{ 'P', 'I', '/', 'E' }, 3.1415f, 2.71);
+}
+```
+
+
