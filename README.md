@@ -105,4 +105,34 @@ void action_cursor_metadata(fbsql::transaction const& tr0)
 
 Also we have an access to column's values. Row has become valid after successful (return true) call to _next()_ method. Columns are counted from zero.
 
+```c++
+void action_query(fbsql::transaction const& tr0)
+{
+    auto st0 = tr0.prepare("select id, text, val, val2 from test_table where id > ?");
+    auto rs0 = st0.cursor(2);
+    while (rs0.next())
+    {
+        auto id = rs0.get(0);     // get fields
+        auto text = rs0.get(1);
+        auto val = rs0.get(2);
+        auto val2 = rs0.get(3);
 
+        // work with field's metadata
+        bool cond1 = val2.is_nullable();
+        int v2_scale = val2.scale();
+        auto [type, subtype] = text.type();
+        std::string text_col_name = text.name();
+        std::string text_col_alias = text.alias();
+        unsigned text_col_length = text.length();
+
+        // work with field's values
+        long id_value = id.as<long>();
+        if (!text.is_null() && !val.is_null() && !val2.is_null())
+        {
+            auto str = text.as<std::string>();
+            float x = val.as<float>();
+            double y = val2.as<double>();
+        }
+    }
+}
+```
