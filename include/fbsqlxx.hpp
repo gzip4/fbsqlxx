@@ -672,6 +672,7 @@ public:
     void close()
     {
         delete[] m_buffer;
+        m_buffer = nullptr;
         m_meta->release();
         m_meta = nullptr;
         m_rs->close(&m_status);
