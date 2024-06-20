@@ -503,6 +503,26 @@ private:
         return *((T*)&m_buffer[m_offset]);
     }
 
+    template <typename T>
+    float cvt_float(T&& value)
+    {
+        int scale = m_meta->getScale(&m_status, m_index);
+        if (scale != 0)
+            return static_cast<float>(value) / std::powf(10.0f, -scale);
+        else
+            return static_cast<float>(value);
+    }
+
+    template <typename T>
+    double cvt_double(T&& value)
+    {
+        int scale = m_meta->getScale(&m_status, m_index);
+        if (scale != 0)
+            return static_cast<double>(value) / std::pow(10.0, -scale);
+        else
+            return static_cast<double>(value);
+    }
+
 private:
     unsigned int m_index;
     Firebird::IMessageMetadata* m_meta;
@@ -511,6 +531,7 @@ private:
     unsigned int m_offset;
     unsigned int m_type;
 };
+
 
 #define CHECK_TYPE(x)   if (m_type != (x)) throw logic_error("Wrong type: " #x)
 
@@ -546,25 +567,59 @@ inline int64_t field::as()
 template <>
 inline double field::as()
 {
-    if (m_type == SQL_INT64)
+    switch (m_type)
     {
-        int scale = m_meta->getScale(&m_status, m_index);
-        if (scale != 0)
-        {
-            int64_t value = cast<int64_t>();
-            return static_cast<double>(value) / std::pow(10.0, -scale);
-        }
+    case SQL_DOUBLE:
+        return cast<double>();
+
+    case SQL_FLOAT:
+        return static_cast<double>(cast<float>());
+
+    case SQL_INT64:
+        return cvt_double(cast<int64_t>());
+
+    case SQL_LONG:
+        return cvt_double(cast<long>());
+
+    case SQL_SHORT:
+        return cvt_double(cast<short>());
+
+    default:
+        break;
     }
 
-    CHECK_TYPE(SQL_DOUBLE);
-    return cast<double>();
+    std::string msg{ "Invalid conversion from <" };
+    msg += type_name(m_type) + "> to double";
+    throw logic_error{ msg.c_str() };
 }
 
 template <>
 inline float field::as()
 {
-    CHECK_TYPE(SQL_FLOAT);
-    return cast<float>();
+    switch (m_type)
+    {
+    case SQL_DOUBLE:
+        return static_cast<float>(cast<double>());
+
+    case SQL_FLOAT:
+        return cast<float>();
+
+    case SQL_INT64:
+        return cvt_float(cast<int64_t>());
+
+    case SQL_LONG:
+        return cvt_float(cast<long>());
+
+    case SQL_SHORT:
+        return cvt_float(cast<short>());
+
+    default:
+        break;
+    }
+
+    std::string msg{ "Invalid conversion from type <" };
+    msg += type_name(m_type) + "> to double";
+    throw logic_error{ msg.c_str() };
 }
 
 template <>
@@ -610,7 +665,8 @@ inline std::string field::as()
 
     case SQL_LONG:
     {
-        return std::to_string(as<long>());
+        int scale = m_meta->getScale(&m_status, m_index);
+        return scale != 0 ? std::to_string(as<double>()) : std::to_string(as<long>());
     }
 
     case SQL_INT64:
@@ -623,7 +679,7 @@ inline std::string field::as()
         break;
     }
 
-    std::string msg{ "No conversion from type <" };
+    std::string msg{ "Invalid conversion from type <" };
     msg += type_name(type) + "> to string";
     throw logic_error(msg.c_str());
 }
