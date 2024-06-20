@@ -800,6 +800,9 @@ public:
 
     size_t execute() const;
 
+    template <typename ...Args>
+    size_t execute(Args&& ...args) const;
+
     template<typename T>
     statement& add(T&& value)
     {
@@ -908,6 +911,32 @@ inline size_t statement::execute() const
             auto imeta = make_autodestroy(m_iparams.make_input(buffer, m_status));
             m_stmt->execute(&m_status, m_tra, &imeta, buffer.data(), NULL, NULL);
         }
+    }
+    catch (const FbException& ex)
+    {
+        char buf[FB_EXCEPTION_BUFFER_SIZE];
+        util()->formatStatus(buf, sizeof(buf), ex.getStatus());
+        throw sql_error(buf, &ex);
+    }
+
+    return m_stmt->getAffectedRecords(&m_status);
+}
+
+template <typename ...Args>
+inline size_t statement::execute(Args&& ...args) const
+{
+    using namespace Firebird;
+    using namespace _detail;
+
+    try
+    {
+        input_params params;
+        (..., params.add(std::forward<Args>(args)));
+
+        std::vector<unsigned char> buffer;
+        auto imeta = make_autodestroy(params.make_input(buffer, m_status));
+
+        m_stmt->execute(&m_status, m_tra, &imeta, buffer.data(), NULL, NULL);
     }
     catch (const FbException& ex)
     {
@@ -1041,7 +1070,7 @@ public:
 
     connection(connection&& rhs) noexcept
         : m_status{ _detail::master()->getStatus() } // create new status, old would be disposed
-        , m_att { rhs.m_att }
+        , m_att{ rhs.m_att }
     {
         rhs.m_att = nullptr;
     }
