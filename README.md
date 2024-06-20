@@ -143,10 +143,5 @@ void action_query(fbsql::transaction const& tr0)
 - [ ] Add transaction parameters
 - [ ] Add other numeric datatypes
 - [ ] Add charsets
-
-
-
-
-
-
+- [ ] Add date/time datatypes
 
