@@ -14,3 +14,15 @@ First, include header file:
 namespace fbsql = fbsqlxx;
 ```
 
+Create a connection to database:
+```c++
+int main()
+{
+    fbsql::connection_params params{};
+    params.database = "localhost:c:/db/testdb.fdb";
+    params.user = "SYSDBA";
+    params.password = "masterkey";
+
+    fbsql::connection c{ params };
+    // ...
+```
