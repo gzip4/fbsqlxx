@@ -14,7 +14,7 @@ First, include header file:
 namespace fbsql = fbsqlxx;
 ```
 
-Create a connection to database:
+Create a connection to a database:
 ```c++
 int main()
 {
