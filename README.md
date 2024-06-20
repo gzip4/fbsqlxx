@@ -136,6 +136,12 @@ void action_query(fbsql::transaction const& tr0)
     }
 }
 ```
+## Exceptions
+A library defines following exceptions:
+
+```c++
+std::exception => fbsql::error => (fbsql::sql_error | fbsql::logic_error)
+```
 
 ## ToDo
 
