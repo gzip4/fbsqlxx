@@ -63,4 +63,21 @@ static void action_insert_2_records(fbsql::transaction const& tr0)
 }
 ```
 
+We need a prepared statement in order to query (select) data from a database. Data can be fetched in a form of result set, and can be accessed from row by row, sequentially.
 
+```c++
+void action_do_queries(fbsql::transaction const& tr0)
+{
+    auto st0 = tr0.prepare("select * from test_table");
+    auto rs0 = st0.cursor(); // no paramaters
+    while (rs0.next())
+    {
+        // work with current row...
+    }
+    rs0.close(); // result set becomes unusable after close
+
+    auto st1 = tr0.prepare("select * from test_table where id > ?");
+    auto rs1 = st1.cursor(2); // paramaters
+    // ...
+}
+```
