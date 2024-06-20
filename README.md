@@ -108,7 +108,7 @@ Also we have an access to column's values. Row has become valid after successful
 ```c++
 void action_query(fbsql::transaction const& tr0)
 {
-    auto st0 = tr0.prepare("select id, text, val, val2 from test_table where id > ?");
+    auto st0 = tr0.prepare("select id, text as text_alias, val, val2 from test_table where id > ?");
     auto rs0 = st0.cursor(2);
     while (rs0.next())
     {
