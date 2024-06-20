@@ -151,4 +151,5 @@ std::exception => fbsql::error => (fbsql::sql_error | fbsql::logic_error)
 - [ ] Add other numeric datatypes
 - [ ] Add charsets
 - [ ] Add date/time datatypes
+- [ ] Add database metadata support
 
