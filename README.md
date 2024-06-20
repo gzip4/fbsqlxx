@@ -34,7 +34,6 @@ All database activity must exist within a transaction. A connection can have man
 Now we can execute immediate SQL statements, with or without parameters:
 
 ```c++
-
 void create_table(fbsql::connection& conn)
 {
     {
@@ -48,7 +47,6 @@ void create_table(fbsql::connection& conn)
     tr2.execute(sql, 2, fbsql::octets{'P', 'I', '/', 'E'}, 3.1415f, 2.71);
     tr2.commit();
 }
-
 ```
 
 If some statement needs to be executed many times with different set of parameters, we can "prepare" it
@@ -104,4 +102,7 @@ void action_cursor_metadata(fbsql::transaction const& tr0)
     {
         // ...
 ```
+
+Also we have an access to column's values. Row has become valid after successful (return true) call to _next()_ method. Columns are counted from zero.
+
 
