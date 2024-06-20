@@ -43,8 +43,9 @@ void create_table(fbsql::connection& c)
         tr1.commit(); // transaction is not usable after commit/rollback
     }
     auto tr2 = c.start();
-    tr2.execute("insert into test_table(id, text, val, val2) values(?, ?, ?, ?)", 1, "some text", 10.01f, 100500.001);
-    tr2.execute("insert into test_table(id, text, val, val2) values(?, ?, ?, ?)", 2, fbsql::octets{'P', 'I', '/', 'E'}, 3.1415f, 2.71);
+    auto sql = "insert into test_table(id, text, val, val2) values(?, ?, ?, ?)";
+    tr2.execute(sql, 1, "some text", 10.01f, 100500.001);
+    tr2.execute(sql, 2, fbsql::octets{'P', 'I', '/', 'E'}, 3.1415f, 2.71);
     tr2.commit();
 }
 
