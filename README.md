@@ -23,6 +23,11 @@ int main()
     params.user = "SYSDBA";
     params.password = "masterkey";
 
-    fbsql::connection c{ params };
+    fbsql::connection conn{ params };
     // ...
+```
+
+All database activity must exist within a transaction. A connection can have many active transactions simultaneously. A transaction should be committed explicitly, otherwise it will be rolled back on destruction.
+```c++
+    auto tr0 = conn.start();
 ```
