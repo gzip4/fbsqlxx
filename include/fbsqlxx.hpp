@@ -982,13 +982,13 @@ public:
         m_tra = nullptr;
     }
 
-    statement query(const char* sql) const
+    statement prepare(const char* sql) const
     {
         return statement{ m_att, m_status, m_tra, sql };
     }
 
     template <typename ...Args>
-    statement query(const char* sql, Args&& ...args) const
+    statement prepare(const char* sql, Args&& ...args) const
     {
         statement st{ m_att, m_status, m_tra, sql };
         (..., st.add(std::forward<Args>(args)));
