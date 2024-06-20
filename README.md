@@ -31,18 +31,18 @@ All database activity must exist within a transaction. A connection can have man
 ```c++
     auto tr0 = conn.start();
 ```
-Now we can execute immadiate SQL statements, with or without parameters:
+Now we can execute immediate SQL statements, with or without parameters:
 
 ```c++
 
-void create_table(fbsql::connection& c)
+void create_table(fbsql::connection& conn)
 {
     {
-        auto tr1 = c.start();
+        auto tr1 = conn.start();
         tr1.execute("create table test_table(id int primary key, text varchar(10), val float, val2 decimal(12, 3))");
         tr1.commit(); // transaction is not usable after commit/rollback
     }
-    auto tr2 = c.start();
+    auto tr2 = conn.start();
     auto sql = "insert into test_table(id, text, val, val2) values(?, ?, ?, ?)";
     tr2.execute(sql, 1, "some text", 10.01f, 100500.001);
     tr2.execute(sql, 2, fbsql::octets{'P', 'I', '/', 'E'}, 3.1415f, 2.71);
