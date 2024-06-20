@@ -136,3 +136,17 @@ void action_query(fbsql::transaction const& tr0)
     }
 }
 ```
+
+## ToDo
+
+- [ ] Extend connection parameters list
+- [ ] Add transaction parameters
+- [ ] Add other numeric datatypes
+- [ ] Add charsets
+
+
+
+
+
+
+
