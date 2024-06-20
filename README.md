@@ -81,3 +81,27 @@ void action_do_queries(fbsql::transaction const& tr0)
     // ...
 }
 ```
+
+A result set provides some information about columns it has access to.
+
+```c++
+void action_cursor_metadata(fbsql::transaction const& tr0)
+{
+    auto st0 = tr0.prepare("select * from test_table");
+    auto rs0 = st0.cursor();
+    auto ncols = rs0.ncols(); // columns count
+    
+    auto names = rs0.names(); // a collection of column's names
+    auto aliases = rs0.aliases();
+    auto types = rs0.types();
+    for (unsigned i = 0; i < ncols; ++i)
+    {
+        std::cout << names[i] << ":" << fbsql::type_name(types[i]) << " ";
+    }
+    std::cout << std::endl;
+    
+    while (rs0.next())
+    {
+        // ...
+```
+
