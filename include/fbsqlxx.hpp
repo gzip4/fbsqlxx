@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -23,11 +24,11 @@ using octets = std::vector<unsigned char>;
 
 
 // exceptions
-class error : public std::exception
+class error : public std::runtime_error
 {
 public:
     error(const char* msg)
-        : std::exception(msg)
+        : std::runtime_error(msg)
     {}
 };
 
