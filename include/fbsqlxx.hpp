@@ -371,7 +371,6 @@ public:
             switch (param.type)
             {
             case SQL_BOOLEAN:
-                //*((unsigned char*)offset) = param.bool_value;
                 cast<unsigned char>(offset) = param.bool_value;
                 break;
 
@@ -524,6 +523,17 @@ private:
             return static_cast<double>(value);
     }
 
+    std::string cvt_string(std::string const& str, int scale)
+    {
+        if (scale != 0)
+        {
+            auto left = str.substr(0, str.size() - scale);
+            auto right = str.substr(str.size() - scale, str.size());
+            return left + "." + right;
+        }
+        return str;
+    }
+
 private:
     unsigned int m_index;
     Firebird::IMessageMetadata* m_meta;
@@ -534,14 +544,13 @@ private:
 };
 
 
-#define CHECK_TYPE(x)   if (m_type != (x)) throw logic_error("Wrong type: " #x)
+#define CHECK_TYPE(x)   if (m_type != (x)) throw logic_error{ "Wrong type: " #x }
 
 template <>
 inline bool field::as()
 {
     CHECK_TYPE(SQL_BOOLEAN);
-    char value = cast<char>();
-    return static_cast<bool>(value);
+    return static_cast<bool>(cast<char>());
 }
 
 template <>
@@ -685,15 +694,14 @@ inline float field::as()
     }
 
     std::string msg{ "Invalid conversion from type <" };
-    msg += type_name(m_type) + "> to double";
+    msg += type_name(m_type) + "> to float";
     throw logic_error{ msg.c_str() };
 }
 
 template <>
 inline std::string field::as()
 {
-    auto type = m_meta->getType(&m_status, m_index) & ~1u;
-    switch (type)
+    switch (m_type)
     {
     case SQL_VARYING:
     {
@@ -727,19 +735,23 @@ inline std::string field::as()
 
     case SQL_SHORT:
     {
-        return std::to_string(as<short>());
+        std::string str = std::to_string(as<short>());
+        int scale = -m_meta->getScale(&m_status, m_index);
+        return cvt_string(str, scale);
     }
 
     case SQL_LONG:
     {
-        int scale = m_meta->getScale(&m_status, m_index);
-        return scale != 0 ? std::to_string(as<double>()) : std::to_string(as<long>());
+        std::string str = std::to_string(as<long>());
+        int scale = -m_meta->getScale(&m_status, m_index);
+        return cvt_string(str, scale);
     }
 
     case SQL_INT64:
     {
-        int scale = m_meta->getScale(&m_status, m_index);
-        return scale != 0 ? std::to_string(as<double>()) : std::to_string(as<int64_t>());
+        std::string str = std::to_string(as<int64_t>());
+        int scale = -m_meta->getScale(&m_status, m_index);
+        return cvt_string(str, scale);
     }
 
     default:
@@ -747,8 +759,8 @@ inline std::string field::as()
     }
 
     std::string msg{ "Invalid conversion from type <" };
-    msg += type_name(type) + "> to string";
-    throw logic_error(msg.c_str());
+    msg += type_name(m_type) + "> to string";
+    throw logic_error{ msg.c_str() };
 }
 
 template <>
@@ -806,13 +818,13 @@ public:
         using namespace Firebird;
         try
         {
-            return m_rs->fetchNext(&m_status, m_buffer) == Firebird::IStatus::RESULT_OK;
+            return m_rs->fetchNext(&m_status, m_buffer) == IStatus::RESULT_OK;
         }
         catch (const FbException& ex)
         {
             char buf[FB_EXCEPTION_BUFFER_SIZE];
             _detail::util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-            throw sql_error(buf, &ex);
+            throw sql_error{ buf, &ex };
         }
     }
 
@@ -946,7 +958,7 @@ private:
         {
             char buf[FB_EXCEPTION_BUFFER_SIZE];
             _detail::util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-            throw sql_error(buf, &ex);
+            throw sql_error{ buf, &ex };
         }
     }
 
@@ -986,7 +998,7 @@ inline result_set statement::cursor() const
     {
         char buf[FB_EXCEPTION_BUFFER_SIZE];
         util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-        throw sql_error(buf, &ex);
+        throw sql_error{ buf, &ex };
     }
 }
 
@@ -1012,7 +1024,7 @@ inline result_set statement::cursor(Args&& ...args) const
     {
         char buf[FB_EXCEPTION_BUFFER_SIZE];
         util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-        throw sql_error(buf, &ex);
+        throw sql_error{ buf, &ex };
     }
 }
 
@@ -1039,7 +1051,7 @@ inline size_t statement::execute() const
     {
         char buf[FB_EXCEPTION_BUFFER_SIZE];
         util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-        throw sql_error(buf, &ex);
+        throw sql_error{ buf, &ex };
     }
 
     return m_stmt->getAffectedRecords(&m_status);
@@ -1065,7 +1077,7 @@ inline size_t statement::execute(Args&& ...args) const
     {
         char buf[FB_EXCEPTION_BUFFER_SIZE];
         util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-        throw sql_error(buf, &ex);
+        throw sql_error{ buf, &ex };
     }
 
     return m_stmt->getAffectedRecords(&m_status);
@@ -1130,7 +1142,7 @@ public:
         {
             char buf[FB_EXCEPTION_BUFFER_SIZE];
             _detail::util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-            throw sql_error(buf, &ex);
+            throw sql_error{ buf, &ex };
         }
     }
 
@@ -1153,7 +1165,7 @@ public:
         {
             char buf[FB_EXCEPTION_BUFFER_SIZE];
             util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-            throw sql_error(buf, &ex);
+            throw sql_error{ buf, &ex };
         }
     }
 
@@ -1234,7 +1246,7 @@ inline connection::connection(const connection_params& params)
     {
         char buf[FB_EXCEPTION_BUFFER_SIZE];
         util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-        throw sql_error(buf, &ex);
+        throw sql_error{ buf, &ex };
     }
 }
 
