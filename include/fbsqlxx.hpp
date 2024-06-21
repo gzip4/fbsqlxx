@@ -52,6 +52,12 @@ public:
     {}
 };
 
+#define CATCH_SQL                                                           \
+    catch (const Firebird::FbException& ex) {                               \
+        char buf[FB_EXCEPTION_BUFFER_SIZE];                                 \
+        _detail::util()->formatStatus(buf, sizeof(buf), ex.getStatus());    \
+        throw sql_error{ buf, &ex }; }
+
 
 
 inline std::string type_name(unsigned int type)
@@ -422,6 +428,8 @@ public:
 private:
     std::vector<iparam> params;
 };
+
+class executor;
 
 } // namespace _detail
 
@@ -800,7 +808,7 @@ public:
         if (m_meta)
             m_meta->release();
         if (m_rs)
-            m_rs->close(&m_status);
+            m_rs->release();
     }
 
     void close()
@@ -809,23 +817,24 @@ public:
         m_buffer = nullptr;
         m_meta->release();
         m_meta = nullptr;
-        m_rs->close(&m_status);
+
+        auto temp = m_rs;
         m_rs = nullptr;
+
+        try
+        {
+            temp->close(&m_status);
+        }
+        CATCH_SQL
     }
 
     bool next()
     {
-        using namespace Firebird;
         try
         {
-            return m_rs->fetchNext(&m_status, m_buffer) == IStatus::RESULT_OK;
+            return m_rs->fetchNext(&m_status, m_buffer) == Firebird::IStatus::RESULT_OK;
         }
-        catch (const FbException& ex)
-        {
-            char buf[FB_EXCEPTION_BUFFER_SIZE];
-            _detail::util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-            throw sql_error{ buf, &ex };
-        }
+        CATCH_SQL
     }
 
     unsigned int ncols() const
@@ -875,7 +884,7 @@ public:
 
 
 private:
-    friend class statement;
+    friend class _detail::executor;
     result_set(Firebird::IResultSet* rs, Firebird::IMessageMetadata* meta, Firebird::ThrowStatusWrapper& status)
         : m_rs{ rs }
         , m_meta{ meta }
@@ -894,6 +903,107 @@ private:
     unsigned int m_count;
 };
 
+
+namespace _detail {
+
+class executor
+{
+public:
+    static result_set cursor(input_params const& params, Firebird::IStatement* stmt, Firebird::ThrowStatusWrapper& status,
+        Firebird::ITransaction* tra)
+    {
+        using namespace Firebird;
+
+        try
+        {
+            if (params.empty())
+            {
+                IResultSet* rs = stmt->openCursor(&status, tra, NULL, NULL, NULL, 0);
+                auto ometa = stmt->getOutputMetadata(&status);
+                return result_set{ rs, ometa, status };
+            }
+            else
+            {
+                std::vector<unsigned char> buffer;
+                auto imeta = make_autodestroy(params.make_input(buffer, status));
+                IResultSet* rs = stmt->openCursor(&status, tra, &imeta, buffer.data(), NULL, 0);
+                auto ometa = stmt->getOutputMetadata(&status);
+                return result_set{ rs, ometa, status };
+            }
+        }
+        CATCH_SQL
+    }
+
+    static result_set cursor(input_params const& params, Firebird::IAttachment* att, Firebird::ThrowStatusWrapper& status,
+        Firebird::ITransaction* tra, const char* sql)
+    {
+        using namespace Firebird;
+
+        try
+        {
+            if (params.empty())
+            {
+                IResultSet* rs = att->openCursor(&status, tra, 0, sql, SQL_DIALECT_V6, NULL, NULL, NULL, NULL, 0);
+                auto ometa = rs->getMetadata(&status);
+                return result_set{ rs, ometa, status };
+            }
+            else
+            {
+                std::vector<unsigned char> buffer;
+                auto imeta = make_autodestroy(params.make_input(buffer, status));
+                IResultSet* rs = att->openCursor(&status, tra, 0, sql, SQL_DIALECT_V6, &imeta, buffer.data(), NULL, NULL, 0);
+                auto ometa = rs->getMetadata(&status);
+                return result_set{ rs, ometa, status };
+            }
+        }
+        CATCH_SQL
+    }
+
+    static size_t execute(input_params const& params, Firebird::IStatement* stmt, Firebird::ThrowStatusWrapper& status,
+        Firebird::ITransaction* tra)
+    {
+        using namespace Firebird;
+
+        try
+        {
+            if (params.empty())
+            {
+                stmt->execute(&status, tra, NULL, NULL, NULL, NULL);
+            }
+            else
+            {
+                std::vector<unsigned char> buffer;
+                auto imeta = make_autodestroy(params.make_input(buffer, status));
+                stmt->execute(&status, tra, &imeta, buffer.data(), NULL, NULL);
+            }
+        }
+        CATCH_SQL
+
+        return stmt->getAffectedRecords(&status);
+    }
+
+    static void execute(Firebird::IAttachment* att, Firebird::ThrowStatusWrapper& status, Firebird::ITransaction* tra, const char* sql)
+    {
+        try
+        {
+            att->execute(&status, tra, 0, sql, SQL_DIALECT_V6, NULL, NULL, NULL, NULL);
+        }
+        CATCH_SQL
+    }
+
+    static void execute(input_params const& params, Firebird::IAttachment* att, Firebird::ThrowStatusWrapper& status, Firebird::ITransaction* tra, const char* sql)
+    {
+        try
+        {
+            std::vector<unsigned char> buffer;
+            auto imeta = make_autodestroy(params.make_input(buffer, status));
+            att->execute(&status, tra, 0, sql, SQL_DIALECT_V6, &imeta, buffer.data(), NULL, NULL);
+        }
+        CATCH_SQL
+    }
+};
+
+} // namespace _detail
 
 
 class statement final
@@ -914,29 +1024,21 @@ public:
 
     ~statement()
     {
-        if (m_stmt) m_stmt->free(&m_status);
+        if (m_stmt) m_stmt->release();
     }
 
     void close()
     {
         m_iparams.clear();
-        m_stmt->free(&m_status);
+        auto temp = m_stmt;
+        m_stmt = nullptr;
+
+        try
+        {
+            temp->free(&m_status);
+        }
+        CATCH_SQL
     }
-
-    void clear()
-    {
-        m_iparams.clear();
-    }
-
-    result_set cursor() const;
-
-    template <typename ...Args>
-    result_set cursor(Args&& ...args) const;
-
-    size_t execute() const;
-
-    template <typename ...Args>
-    size_t execute(Args&& ...args) const;
 
     template<typename T>
     statement& add(T&& value)
@@ -945,22 +1047,41 @@ public:
         return *this;
     }
 
-private:
-    statement(Firebird::IAttachment* att, Firebird::ThrowStatusWrapper& status, Firebird::ITransaction* tra, const char* sql)
-        : m_status{ status }, m_tra{ tra }, m_stmt{}
+    void clear()
     {
-        using namespace Firebird;
-        try
-        {
-            m_stmt = att->prepare(&status, tra, 0, sql, SQL_DIALECT_V6, IStatement::PREPARE_PREFETCH_METADATA);
-        }
-        catch (const FbException& ex)
-        {
-            char buf[FB_EXCEPTION_BUFFER_SIZE];
-            _detail::util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-            throw sql_error{ buf, &ex };
-        }
+        m_iparams.clear();
     }
+
+    result_set cursor() const
+    {
+        return _detail::executor::cursor(m_iparams, m_stmt, m_status, m_tra);
+    }
+
+    template <typename ...Args>
+    result_set cursor(Args&& ...args) const
+    {
+        _detail::input_params params;
+        (..., params.add(std::forward<Args>(args)));
+        return _detail::executor::cursor(params, m_stmt, m_status, m_tra);
+    }
+
+    size_t execute() const
+    {
+        return _detail::executor::execute(m_iparams, m_stmt, m_status, m_tra);
+    }
+
+    template <typename ...Args>
+    size_t execute(Args&& ...args) const
+    {
+        _detail::input_params params;
+        (..., params.add(std::forward<Args>(args)));
+        return _detail::executor::execute(params, m_stmt, m_status, m_tra);
+    }
+
+private:
+    statement(Firebird::IStatement* stmt, Firebird::ThrowStatusWrapper& status, Firebird::ITransaction* tra)
+        : m_status{ status }, m_tra{ tra }, m_stmt{ stmt }
+    {}
 
 private:
     friend class transaction;
@@ -970,118 +1091,6 @@ private:
 
     _detail::input_params m_iparams;
 };
-
-
-inline result_set statement::cursor() const
-{
-    using namespace Firebird;
-    using namespace _detail;
-
-    try
-    {
-        if (m_iparams.empty())
-        {
-            IResultSet* rs = m_stmt->openCursor(&m_status, m_tra, NULL, NULL, NULL, 0);
-            auto ometa = m_stmt->getOutputMetadata(&m_status);
-            return result_set{ rs, ometa, m_status };
-        }
-        else
-        {
-            std::vector<unsigned char> buffer;
-            auto imeta = make_autodestroy(m_iparams.make_input(buffer, m_status));
-            IResultSet* rs = m_stmt->openCursor(&m_status, m_tra, &imeta, buffer.data(), NULL, 0);
-            auto ometa = m_stmt->getOutputMetadata(&m_status);
-            return result_set{ rs, ometa, m_status };
-        }
-    }
-    catch (const FbException& ex)
-    {
-        char buf[FB_EXCEPTION_BUFFER_SIZE];
-        util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-        throw sql_error{ buf, &ex };
-    }
-}
-
-template <typename ...Args>
-inline result_set statement::cursor(Args&& ...args) const
-{
-    using namespace Firebird;
-    using namespace _detail;
-
-    try
-    {
-        input_params params;
-        (..., params.add(std::forward<Args>(args)));
-
-        std::vector<unsigned char> buffer;
-        auto imeta = make_autodestroy(params.make_input(buffer, m_status));
-
-        IResultSet* rs = m_stmt->openCursor(&m_status, m_tra, &imeta, buffer.data(), NULL, 0);
-        auto ometa = m_stmt->getOutputMetadata(&m_status);
-        return result_set{ rs, ometa, m_status };
-    }
-    catch (const FbException& ex)
-    {
-        char buf[FB_EXCEPTION_BUFFER_SIZE];
-        util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-        throw sql_error{ buf, &ex };
-    }
-}
-
-
-inline size_t statement::execute() const
-{
-    using namespace Firebird;
-    using namespace _detail;
-
-    try
-    {
-        if (m_iparams.empty())
-        {
-            m_stmt->execute(&m_status, m_tra, NULL, NULL, NULL, NULL);
-        }
-        else
-        {
-            std::vector<unsigned char> buffer;
-            auto imeta = make_autodestroy(m_iparams.make_input(buffer, m_status));
-            m_stmt->execute(&m_status, m_tra, &imeta, buffer.data(), NULL, NULL);
-        }
-    }
-    catch (const FbException& ex)
-    {
-        char buf[FB_EXCEPTION_BUFFER_SIZE];
-        util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-        throw sql_error{ buf, &ex };
-    }
-
-    return m_stmt->getAffectedRecords(&m_status);
-}
-
-template <typename ...Args>
-inline size_t statement::execute(Args&& ...args) const
-{
-    using namespace Firebird;
-    using namespace _detail;
-
-    try
-    {
-        input_params params;
-        (..., params.add(std::forward<Args>(args)));
-
-        std::vector<unsigned char> buffer;
-        auto imeta = make_autodestroy(params.make_input(buffer, m_status));
-
-        m_stmt->execute(&m_status, m_tra, &imeta, buffer.data(), NULL, NULL);
-    }
-    catch (const FbException& ex)
-    {
-        char buf[FB_EXCEPTION_BUFFER_SIZE];
-        util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-        throw sql_error{ buf, &ex };
-    }
-
-    return m_stmt->getAffectedRecords(&m_status);
-}
 
 
 
@@ -1119,61 +1128,62 @@ public:
 
     statement prepare(const char* sql) const
     {
-        return statement{ m_att, m_status, m_tra, sql };
+        using namespace Firebird;
+        try
+        {
+            IStatement* stmt = m_att->prepare(&m_status, m_tra, 0, sql, SQL_DIALECT_V6, IStatement::PREPARE_PREFETCH_METADATA);
+            return statement{ stmt, m_status, m_tra };
+        }
+        CATCH_SQL
     }
 
     template <typename ...Args>
     statement prepare(const char* sql, Args&& ...args) const
     {
-        statement st{ m_att, m_status, m_tra, sql };
-        (..., st.add(std::forward<Args>(args)));
-        return st;
+        using namespace Firebird;
+        try
+        {
+            IStatement* stmt = m_att->prepare(&m_status, m_tra, 0, sql, SQL_DIALECT_V6, IStatement::PREPARE_PREFETCH_METADATA);
+            statement st{ stmt, m_status, m_tra };
+            (..., st.add(std::forward<Args>(args)));
+            return st;
+        }
+        CATCH_SQL
     }
 
     void execute(const char* sql) const
     {
-        using namespace Firebird;
-
-        try
-        {
-            m_att->execute(&m_status, m_tra, 0, sql, SQL_DIALECT_V6, NULL, NULL, NULL, NULL);
-        }
-        catch (const FbException& ex)
-        {
-            char buf[FB_EXCEPTION_BUFFER_SIZE];
-            _detail::util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-            throw sql_error{ buf, &ex };
-        }
+        return _detail::executor::execute(m_att, m_status, m_tra, sql);
     }
 
     template <typename ...Args>
     void execute(const char* sql, Args&& ...args) const
     {
-        using namespace Firebird;
-        using namespace _detail;
+        _detail::input_params params;
+        (..., params.add(std::forward<Args>(args)));
 
-        try
-        {
-            _detail::input_params params;
-            (..., params.add(std::forward<Args>(args)));
+        return _detail::executor::execute(params, m_att, m_status, m_tra, sql);
+    }
 
-            std::vector<unsigned char> buffer;
-            auto imeta = make_autodestroy(params.make_input(buffer, m_status));
-            m_att->execute(&m_status, m_tra, 0, sql, SQL_DIALECT_V6, &imeta, buffer.data(), NULL, NULL);
-        }
-        catch (const FbException& ex)
-        {
-            char buf[FB_EXCEPTION_BUFFER_SIZE];
-            util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-            throw sql_error{ buf, &ex };
-        }
+    result_set cursor(const char* sql) const
+    {
+        return _detail::executor::cursor({}, m_att, m_status, m_tra, sql);
+    }
+
+    template <typename ...Args>
+    result_set cursor(const char* sql, Args&& ...args) const
+    {
+        _detail::input_params params;
+        (..., params.add(std::forward<Args>(args)));
+
+        return _detail::executor::cursor(params, m_att, m_status, m_tra, sql);
     }
 
 private:
     transaction(Firebird::IAttachment* att, Firebird::ThrowStatusWrapper& status)
         : m_att{ att }, m_status{ status }
     {
-        m_tra = att->startTransaction(&status, 0, nullptr);
+        m_tra = att->startTransaction(&status, 0, NULL);
     }
 
 private:
@@ -1212,7 +1222,11 @@ public:
 
     transaction start()
     {
-        return transaction{ m_att, m_status };
+        try
+        {
+            return transaction{ m_att, m_status };
+        }
+        CATCH_SQL
     }
 
 private:
@@ -1242,12 +1256,7 @@ inline connection::connection(const connection_params& params)
         auto provider = make_autodestroy(master()->getDispatcher());
         m_att = provider->attachDatabase(&m_status, params.database, dpb->getBufferLength(&m_status), dpb->getBuffer(&m_status));
     }
-    catch (const FbException& ex)
-    {
-        char buf[FB_EXCEPTION_BUFFER_SIZE];
-        util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-        throw sql_error{ buf, &ex };
-    }
+    CATCH_SQL
 }
 
 inline connection::~connection()
@@ -1266,5 +1275,7 @@ inline connection::~connection()
 
     m_status.dispose();
 }
+
+#undef CATCH_SQL
 
 } // namespace fbsqlxx
