@@ -141,7 +141,7 @@ void action_query(fbsql::transaction const& tr0)
 A library defines following exceptions:
 
 ```c++
-std::exception => fbsql::error => (fbsql::sql_error | fbsql::logic_error)
+std::runtime_error => fbsql::error => (fbsql::sql_error | fbsql::logic_error)
 ```
 
 ## ToDo
