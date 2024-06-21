@@ -546,22 +546,88 @@ inline bool field::as()
 template <>
 inline short field::as()
 {
-    CHECK_TYPE(SQL_SHORT);
-    return cast<short>();
+    switch (m_type)
+    {
+    case SQL_SHORT:
+        return cast<short>();
+
+    case SQL_DOUBLE:
+        return static_cast<short>(cast<double>());
+
+    case SQL_FLOAT:
+        return static_cast<short>(cast<float>());
+
+    case SQL_INT64:
+        return static_cast<short>(cast<int64_t>());
+
+    case SQL_LONG:
+        return static_cast<short>(cast<long>());
+
+    default:
+        break;
+    }
+
+    std::string msg{ "Invalid conversion from type <" };
+    msg += type_name(m_type) + "> to smallint";
+    throw logic_error{ msg.c_str() };
 }
 
 template <>
 inline long field::as()
 {
-    CHECK_TYPE(SQL_LONG);
-    return cast<long>();
+    switch (m_type)
+    {
+    case SQL_LONG:
+        return cast<long>();
+
+    case SQL_DOUBLE:
+        return static_cast<long>(cast<double>());
+
+    case SQL_FLOAT:
+        return static_cast<long>(cast<float>());
+
+    case SQL_INT64:
+        return static_cast<long>(cast<int64_t>());
+
+    case SQL_SHORT:
+        return static_cast<long>(cast<short>());
+
+    default:
+        break;
+    }
+
+    std::string msg{ "Invalid conversion from type <" };
+    msg += type_name(m_type) + "> to int";
+    throw logic_error{ msg.c_str() };
 }
 
 template <>
 inline int64_t field::as()
 {
-    CHECK_TYPE(SQL_INT64);
-    return cast<int64_t>();
+    switch (m_type)
+    {
+    case SQL_INT64:
+        return cast<int64_t>();
+
+    case SQL_DOUBLE:
+        return static_cast<int64_t>(cast<double>());
+
+    case SQL_FLOAT:
+        return static_cast<int64_t>(cast<float>());
+
+    case SQL_LONG:
+        return static_cast<int64_t>(cast<long>());
+
+    case SQL_SHORT:
+        return static_cast<int64_t>(cast<short>());
+
+    default:
+        break;
+    }
+
+    std::string msg{ "Invalid conversion from type <" };
+    msg += type_name(m_type) + "> to bigint";
+    throw logic_error{ msg.c_str() };
 }
 
 template <>
@@ -687,7 +753,6 @@ inline std::string field::as()
 template <>
 inline octets field::as()
 {
-    auto type = m_meta->getType(&m_status, m_index);
     const unsigned char* from = (const unsigned char*)&m_buffer[m_offset];
     const unsigned char* to = from + m_meta->getLength(&m_status, m_index);
     return octets{ from, to };
