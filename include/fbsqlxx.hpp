@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <initializer_list>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -516,7 +517,7 @@ private:
     {
         int scale = m_meta->getScale(&m_status, m_index);
         if (scale != 0)
-            return static_cast<float>(value) / std::powf(10.0f, -scale);
+            return static_cast<float>(value) / std::powf(10.0f, -static_cast<float>(scale));
         else
             return static_cast<float>(value);
     }
@@ -976,10 +977,9 @@ public:
                 auto imeta = make_autodestroy(params.make_input(buffer, status));
                 stmt->execute(&status, tra, &imeta, buffer.data(), NULL, NULL);
             }
+            return stmt->getAffectedRecords(&status);
         }
         CATCH_SQL
-
-        return stmt->getAffectedRecords(&status);
     }
 
     static void execute(Firebird::IAttachment* att, Firebird::ThrowStatusWrapper& status, Firebird::ITransaction* tra, const char* sql)
@@ -1308,7 +1308,10 @@ private:
 };
 
 
-
+static inline int64_t portable_integer(const uint8_t* p, short length)
+{
+    return isc_portable_integer(p, length);
+}
 
 
 struct connection_params
@@ -1391,6 +1394,45 @@ public:
             return transaction{ m_att, m_status, il, lr, da };
         }
         CATCH_SQL
+    }
+
+    /// <summary>
+    /// Database info request
+    /// </summary>
+    /// <param name="items">- list of <em>enum db_info_types</em> constants (isc_info_*, fb_info_*)</param>
+    /// <param name="buffer_size">- maximun size of output buffer in bytes, optional</param>
+    /// <returns>buffer filled with info, needs to be parsed</returns>
+    std::vector<uint8_t>
+        info(std::initializer_list<uint8_t> items, size_t buffer_size = 16 * 1024) const
+    {
+        std::vector<uint8_t> buffer(buffer_size);
+        std::vector<uint8_t> _items{ items };
+        _items.push_back(isc_info_end);
+        try
+        {
+            auto status = _detail::make_autodestroy(_detail::master()->getStatus());
+            Firebird::ThrowStatusWrapper wrapper{ &status };
+            m_att->getInfo(&wrapper, static_cast<unsigned>(_items.size()), _items.data(),
+                static_cast<unsigned>(buffer.size()), buffer.data());
+            auto it = std::find(buffer.cbegin(), buffer.cend(), isc_info_end);
+            return { buffer.cbegin(), it + 1 };
+        }
+        CATCH_SQL
+    }
+
+    template <typename Func>
+    static void parse_info_buffer(std::vector<uint8_t> const& buffer, Func func)
+    {
+        for (auto p = buffer.cbegin(); p != buffer.cend() && *p != isc_info_end; )
+        {
+            uint8_t item = *p++;
+            short length = portable_integer(&p[0], 2);
+            p += 2;
+
+            func(item, length, &p[0]);
+
+            p += length;
+        }
     }
 
 private:
