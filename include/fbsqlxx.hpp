@@ -372,7 +372,7 @@ public:
 
             auto len = imeta->getLength(&status, i);
 
-            *null = (param.type == SQL_NULL) ? 1 : 0;
+            *null = (param.type == SQL_NULL) ? -1 : 0;
 
             switch (param.type)
             {
@@ -1093,6 +1093,63 @@ private:
 };
 
 
+struct data_access
+{
+    bool mode{ true };
+    static data_access read_only()
+    {
+        return { false };
+    }
+    static data_access read_write()
+    {
+        return { true };
+    }
+};
+
+struct lock_resolution
+{
+    bool mode{ true };
+    int timeout{ -1 };
+    static lock_resolution wait(int lock_timeout = -1)
+    {
+        return { true, lock_timeout };
+    }
+    static lock_resolution no_wait(int lock_timeout = -1)
+    {
+        return { false, lock_timeout };
+    }
+};
+
+struct isolation_level
+{
+    enum
+    {
+        il_concurrency, il_consistency, il_read_committed
+    };
+    enum
+    {
+        rc_no_record_version, rc_record_version, rc_consistency
+    };
+    int mode{ il_concurrency };
+    int rc{ rc_no_record_version };
+    static isolation_level concurrency()
+    {
+        return { il_concurrency, -1 };
+    }
+    static isolation_level consistency()
+    {
+        return { il_consistency, -1 };
+    }
+    static isolation_level read_committed(bool record_version = false)
+    {
+        return { il_read_committed, record_version ? rc_record_version : rc_no_record_version };
+    }
+    static isolation_level read_committed_consistency()
+    {
+        return { il_read_committed, rc_consistency };
+    }
+};
+
 
 class transaction final
 {
@@ -1186,12 +1243,71 @@ private:
         m_tra = att->startTransaction(&status, 0, NULL);
     }
 
+    transaction(Firebird::IAttachment* att, Firebird::ThrowStatusWrapper& status, isolation_level il, lock_resolution lr, data_access da)
+        : m_att{ att }, m_status{ status }
+    {
+        using namespace Firebird;
+        using namespace _detail;
+
+        auto tpb = make_autodestroy(util()->getXpbBuilder(&m_status, IXpbBuilder::TPB, nullptr, 0));
+        switch (il.mode)
+        {
+        case isolation_level::il_concurrency:
+            tpb->insertTag(&status, isc_tpb_concurrency);
+            break;
+        case isolation_level::il_consistency:
+            tpb->insertTag(&status, isc_tpb_consistency);
+            break;
+        case isolation_level::il_read_committed:
+            tpb->insertTag(&status, isc_tpb_read_committed);
+            {
+                switch (il.rc)
+                {
+                case isolation_level::rc_no_record_version:
+                    tpb->insertTag(&status, isc_tpb_no_rec_version);
+                    break;
+                case isolation_level::rc_record_version:
+                    tpb->insertTag(&status, isc_tpb_rec_version);
+                    break;
+                case isolation_level::rc_consistency:
+                    tpb->insertTag(&status, isc_tpb_read_consistency);
+                    break;
+                default:
+                    throw logic_error("Wrong read-committed transaction variant");
+                    break;
+                }
+            }
+            break;
+        default:
+            throw logic_error("Wrong isolation level");
+            break;
+        }
+
+        if (lr.mode)
+        {
+            tpb->insertTag(&status, isc_tpb_wait);
+            if (lr.timeout > 0)
+                tpb->insertInt(&status, isc_tpb_lock_timeout, lr.timeout);
+        }
+        else
+            tpb->insertTag(&status, isc_tpb_nowait);
+
+        if (da.mode)
+            tpb->insertTag(&status, isc_tpb_write);
+        else
+            tpb->insertTag(&status, isc_tpb_read);
+
+        m_tra = att->startTransaction(&status, tpb->getBufferLength(&status), tpb->getBuffer(&status));
+    }
+
 private:
     friend class connection;
     Firebird::IAttachment* m_att;
     Firebird::ThrowStatusWrapper& m_status;
     Firebird::ITransaction* m_tra;
 };
+
+
 
 
 
@@ -1206,8 +1322,47 @@ struct connection_params
 class connection
 {
 public:
-    connection(const connection_params&);
-    ~connection();
+    connection(const connection_params& params)
+        : m_status{ _detail::master()->getStatus() }
+        , m_att{ nullptr }
+    {
+        if (!params.database) throw logic_error("Database location must be supplied");
+
+        using namespace Firebird;
+        using namespace _detail;
+
+        auto dpb = make_autodestroy(util()->getXpbBuilder(&m_status, IXpbBuilder::DPB, nullptr, 0));
+        if (params.user)
+            dpb->insertString(&m_status, isc_dpb_user_name, params.user);
+        if (params.password)
+            dpb->insertString(&m_status, isc_dpb_password, params.password);
+        if (params.role)
+            dpb->insertString(&m_status, isc_dpb_sql_role_name, params.role);
+
+        try
+        {
+            auto provider = make_autodestroy(master()->getDispatcher());
+            m_att = provider->attachDatabase(&m_status, params.database, dpb->getBufferLength(&m_status), dpb->getBuffer(&m_status));
+        }
+        CATCH_SQL
+    }
+
+    ~connection()
+    {
+        try
+        {
+            if (m_att) m_att->detach(&m_status);
+        }
+        catch (const Firebird::FbException& ex)
+        {
+            // XXX: what to do here
+            char buf[FB_EXCEPTION_BUFFER_SIZE];
+            _detail::util()->formatStatus(buf, sizeof(buf), ex.getStatus());
+            //std::cerr << buf << std::endl;
+        }
+
+        m_status.dispose();
+    }
 
     connection(const connection&) = delete;
     connection& operator=(connection&&) = delete;
@@ -1229,52 +1384,20 @@ public:
         CATCH_SQL
     }
 
+    transaction start(isolation_level il, lock_resolution lr = {}, data_access da = {})
+    {
+        try
+        {
+            return transaction{ m_att, m_status, il, lr, da };
+        }
+        CATCH_SQL
+    }
+
 private:
     Firebird::ThrowStatusWrapper m_status;
     Firebird::IAttachment* m_att;
 };
 
-inline connection::connection(const connection_params& params)
-    : m_status{ _detail::master()->getStatus() }
-    , m_att{ nullptr }
-{
-    if (!params.database) throw logic_error("Database location must be supplied");
-
-    using namespace Firebird;
-    using namespace _detail;
-
-    auto dpb = make_autodestroy(util()->getXpbBuilder(&m_status, IXpbBuilder::DPB, nullptr, 0));
-    if (params.user)
-        dpb->insertString(&m_status, isc_dpb_user_name, params.user);
-    if (params.password)
-        dpb->insertString(&m_status, isc_dpb_password, params.password);
-    if (params.role)
-        dpb->insertString(&m_status, isc_dpb_sql_role_name, params.role);
-
-    try
-    {
-        auto provider = make_autodestroy(master()->getDispatcher());
-        m_att = provider->attachDatabase(&m_status, params.database, dpb->getBufferLength(&m_status), dpb->getBuffer(&m_status));
-    }
-    CATCH_SQL
-}
-
-inline connection::~connection()
-{
-    try
-    {
-        if (m_att) m_att->detach(&m_status);
-    }
-    catch (const Firebird::FbException& ex)
-    {
-        // XXX: what to do here
-        char buf[FB_EXCEPTION_BUFFER_SIZE];
-        _detail::util()->formatStatus(buf, sizeof(buf), ex.getStatus());
-        //std::cerr << buf << std::endl;
-    }
-
-    m_status.dispose();
-}
 
 #undef CATCH_SQL
 
