@@ -162,6 +162,21 @@ void action_query(fbsql::transaction const& tr0)
     }
 }
 ```
+
+## Database metadata
+A library provides the abstraction of database metadata requests, avoiding use of arrays etc, and helps to parse the replies incoming. Let's see how it looks like.
+
+```c++
+    auto buffer = conn.info({ isc_info_page_size, isc_info_db_size_in_pages });
+    connection::parse_info_buffer(buffer, [](uint8_t item, short len, const uint8_t* p)
+        {
+            // item = isc_info_page_size, then isc_info_db_size_in_pages
+            int64_t val = portable_integer(p, len); // metadata item numeric value
+        });
+```
+
+```connection::parse_info_buffer()``` helper function invokes a callback on every metadata item the buffer contains. Library's users must know particular items layout in the buffer (numbers, strings, arrays, etc).
+
 ## Exceptions
 A library defines following exceptions:
 
@@ -177,5 +192,5 @@ std::runtime_error => fbsql::error => (fbsql::sql_error | fbsql::logic_error)
 - [ ] Add blobs
 - [ ] Add charsets
 - [ ] Add date/time datatypes
-- [ ] Add database metadata support
+- [x] Add database metadata support
 
