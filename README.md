@@ -164,7 +164,7 @@ void action_query(fbsql::transaction const& tr0)
 ```
 
 ## Database metadata
-A library provides the abstraction of database metadata requests, avoiding use of arrays etc, and helps to parse the replies incoming. Let's see how it looks like.
+A library provides the thin layer of abstraction of database metadata requests, avoiding use of arrays etc, and helps to parse the replies incoming. Let's see how it looks like.
 
 ```c++
     auto buffer = conn.info({ isc_info_page_size, isc_info_db_size_in_pages });
