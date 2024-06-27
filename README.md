@@ -175,7 +175,18 @@ A library provides the abstraction of database metadata requests, avoiding use o
         });
 ```
 
-```connection::parse_info_buffer()``` helper function invokes a callback on every metadata item the buffer contains. Library's users must know particular items layout in the buffer (numbers, strings, arrays, etc).
+```connection::parse_info_buffer()``` helper function invokes a callback on every metadata item the buffer contains. Library's users must know particular items layout in the buffer (numbers, strings, arrays, etc). Of course, the buffer contents may be used directly, for example:
+
+```c++
+long database_page_size(fbsqlxx::connection const& conn)
+{
+    // set initial buffer_size to 16 bytes as long as we know it would be enough
+    auto buffer = conn.info({ isc_info_page_size }, 16); // buffer is a byte buffer
+    // buffer[0] = isc_info_page_size, buffer[1] and buffer[2] = short length, must be 4
+    // buffer[3]..buffer[6] = 32-bit page_size value
+    return static_cast<long>(fbsqlxx::portable_integer(buffer.data() + 3, 4));
+}
+```
 
 ## Exceptions
 A library defines following exceptions:
