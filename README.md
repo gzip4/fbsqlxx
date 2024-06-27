@@ -30,8 +30,29 @@ int main()
 
 All database activity must exist within a transaction. A connection can have many active transactions simultaneously. A transaction should be committed explicitly, otherwise it will be rolled back on destruction.
 ```c++
-    auto tr0 = conn.start();
+    auto tr0 = conn.start(); // default transaction options
 ```
+
+Each transaction may have it's own set of options ([read documentation](https://www.firebirdsql.org/file/documentation/chunk/en/refdocs/fblangref40/fblangref40-transacs.html)). Let's see how to use them:
+```c++
+    using namespace fbsqlxx;
+    auto tr0 = c.start(
+        isolation_level::read_committed(), // required
+        lock_resolution::no_wait(),        // optional, default = wait()
+        data_access::read_only());         // optional, default = read_write()
+
+    // isolation_level::concurrency() - shapshot
+    // isolation_level::consistency() - shapshot table stability
+    // isolation_level::read_committed(bool = false) - read committed with (no record_version | record_version) sub-option
+    // isolation_level::read_committed_consistency() - read committed with read consistency sub-option
+
+    // lock_resolution::no_wait()
+    // lock_resolution::wait(int = -1) - timeout in seconds, if positive
+
+    // data_access::read_only()
+    // data_access::read_write()
+```
+
 Now we can execute immediate SQL statements, with or without parameters:
 
 ```c++
@@ -151,7 +172,7 @@ std::runtime_error => fbsql::error => (fbsql::sql_error | fbsql::logic_error)
 ## ToDo
 
 - [ ] Extend connection parameters list
-- [ ] Add transaction parameters
+- [x] Add transaction parameters
 - [ ] Add other numeric datatypes
 - [ ] Add blobs
 - [ ] Add charsets
