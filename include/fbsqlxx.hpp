@@ -1415,9 +1415,20 @@ public:
     }
 
     /// <summary>
+    /// Execute SQL statement in a separate transaction, no input, no output
+    /// </summary>
+    /// <param name="sql">- SQL statement string</param>
+    void immediate(const char* sql)
+    {
+        auto tra = start(isolation_level::read_committed(), lock_resolution::no_wait());
+        tra.execute(sql);
+        tra.commit();
+    }
+
+    /// <summary>
     /// Start new transaction with default options
     /// </summary>
-    /// <returns></returns>
+    /// <returns>transaction object</returns>
     transaction start()
     {
         try
@@ -1433,7 +1444,7 @@ public:
     /// <param name="il">- isolation_level, snapshot, stability or read committed</param>
     /// <param name="lr">- lock_resolution, wait or no wait</param>
     /// <param name="da">- data_access, read only or read-write</param>
-    /// <returns></returns>
+    /// <returns>transaction object</returns>
     transaction start(isolation_level il, lock_resolution lr = {}, data_access da = {})
     {
         try
