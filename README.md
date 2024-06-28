@@ -197,7 +197,7 @@ std::runtime_error => fbsql::error => (fbsql::sql_error | fbsql::logic_error)
 
 ## ToDo
 
-- [ ] Extend connection parameters list
+- [x] Extend connection parameters list
 - [x] Add transaction parameters
 - [ ] Add other numeric datatypes
 - [ ] Add blobs
