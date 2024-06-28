@@ -1243,7 +1243,8 @@ private:
         m_tra = att->startTransaction(&status, 0, NULL);
     }
 
-    transaction(Firebird::IAttachment* att, Firebird::ThrowStatusWrapper& status, isolation_level il, lock_resolution lr, data_access da)
+    transaction(Firebird::IAttachment* att, Firebird::ThrowStatusWrapper& status,
+        isolation_level const& il, lock_resolution const& lr, data_access const& da)
         : m_att{ att }, m_status{ status }
     {
         using namespace Firebird;
@@ -1378,6 +1379,22 @@ public:
         rhs.m_att = nullptr;
     }
 
+    /// <summary>
+    /// Ping database server
+    /// </summary>
+    void ping()
+    {
+        try
+        {
+            m_att->ping(&m_status);
+        }
+        CATCH_SQL
+    }
+
+    /// <summary>
+    /// Start new transaction with default options
+    /// </summary>
+    /// <returns></returns>
     transaction start()
     {
         try
@@ -1387,6 +1404,13 @@ public:
         CATCH_SQL
     }
 
+    /// <summary>
+    /// Start new transaction with specific options
+    /// </summary>
+    /// <param name="il">- isolation_level, snapshot, stability or read committed</param>
+    /// <param name="lr">- lock_resolution, wait or no wait</param>
+    /// <param name="da">- data_access, read only or read-write</param>
+    /// <returns></returns>
     transaction start(isolation_level il, lock_resolution lr = {}, data_access da = {})
     {
         try
@@ -1397,7 +1421,7 @@ public:
     }
 
     /// <summary>
-    /// Database info request
+    /// Database metadata info request
     /// </summary>
     /// <param name="items">- list of <em>enum db_info_types</em> constants (isc_info_*, fb_info_*)</param>
     /// <param name="buffer_size">- maximun size of output buffer in bytes, optional</param>
@@ -1414,7 +1438,14 @@ public:
             Firebird::ThrowStatusWrapper wrapper{ &status };
             m_att->getInfo(&wrapper, static_cast<unsigned>(_items.size()), _items.data(),
                 static_cast<unsigned>(buffer.size()), buffer.data());
+
+            if (buffer[0] == isc_info_truncated)
+                throw logic_error("connection::info() - output buffer is truncated");
+
             auto it = std::find(buffer.cbegin(), buffer.cend(), isc_info_end);
+            if (it == buffer.cend())
+                throw logic_error("connection::info() - output buffer is broken");
+
             return { buffer.cbegin(), it + 1 };
         }
         CATCH_SQL
@@ -1426,10 +1457,10 @@ public:
         for (auto p = buffer.cbegin(); p != buffer.cend() && *p != isc_info_end; )
         {
             uint8_t item = *p++;
-            short length = portable_integer(&p[0], 2);
+            short length = portable_integer(std::addressof(*p), 2);
             p += 2;
 
-            func(item, length, &p[0]);
+            func(item, length, std::addressof(*p));
 
             p += length;
         }
