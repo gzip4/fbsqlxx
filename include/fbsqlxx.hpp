@@ -1321,6 +1321,13 @@ struct connection_params
     const char* user;
     const char* password;
     const char* role;
+    const char* lc_messages;    // path to custom firebird.msg file
+    const char* lc_ctype;       // connection charset
+    const char* session_time_zone;
+    const char* trusted_role;
+    int connect_timeout;
+    int dialect{ SQL_DIALECT_CURRENT };
+    bool trusted_auth;
 };
 
 class connection
@@ -1342,6 +1349,22 @@ public:
             dpb->insertString(&m_status, isc_dpb_password, params.password);
         if (params.role)
             dpb->insertString(&m_status, isc_dpb_sql_role_name, params.role);
+        if (params.lc_ctype)
+            dpb->insertString(&m_status, isc_dpb_lc_ctype, params.lc_ctype);
+        if (params.lc_messages)
+            dpb->insertString(&m_status, isc_dpb_lc_messages, params.lc_messages);
+        if (params.session_time_zone)
+            dpb->insertString(&m_status, isc_dpb_session_time_zone, params.session_time_zone);
+
+        if (params.trusted_auth)
+            dpb->insertTag(&m_status, isc_dpb_trusted_auth);
+        if (params.trusted_role)
+            dpb->insertString(&m_status, isc_dpb_trusted_role, params.trusted_role);
+
+        if (params.connect_timeout > 0)
+            dpb->insertInt(&m_status, isc_dpb_connect_timeout, params.connect_timeout);
+
+        dpb->insertInt(&m_status, isc_dpb_sql_dialect, params.dialect);
 
         try
         {
