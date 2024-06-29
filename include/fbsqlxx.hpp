@@ -13,9 +13,9 @@
 
 
 
-#ifndef FB_EXCEPTION_BUFFER_SIZE
-#define FB_EXCEPTION_BUFFER_SIZE 512
-#endif // !FB_EXCEPTION_BUFFER_SIZE
+#ifndef FBSQLXX_EXCEPTION_BUFFER_SIZE
+#define FBSQLXX_EXCEPTION_BUFFER_SIZE 512
+#endif // !FBSQLXX_EXCEPTION_BUFFER_SIZE
 
 
 namespace fbsqlxx {
@@ -55,11 +55,27 @@ public:
 
 #define CATCH_SQL                                                           \
     catch (const Firebird::FbException& ex) {                               \
-        char buf[FB_EXCEPTION_BUFFER_SIZE];                                 \
+        char buf[FBSQLXX_EXCEPTION_BUFFER_SIZE];                            \
         _detail::util()->formatStatus(buf, sizeof(buf), ex.getStatus());    \
         throw sql_error{ buf, &ex }; }
 
 
+// internal implementations
+namespace _detail {
+
+static inline Firebird::IMaster* master()
+{
+    static Firebird::IMaster* _master = Firebird::fb_get_master_interface();
+    return _master;
+}
+
+static inline Firebird::IUtil* util()
+{
+    static Firebird::IUtil* _util = master()->getUtilInterface();
+    return _util;
+}
+
+} // namespace _detail
 
 inline std::string type_name(unsigned int type)
 {
@@ -135,20 +151,213 @@ inline std::string type_name(unsigned int type)
     return "UNKNOWN";
 }
 
+// sub-entities are rely on upper parties, ensure it's liveness
+class connection;
+class transaction;
+class statement;
+class result_set;
+class field;
+class blob;
+
+
+class blob final
+{
+public:
+    static constexpr unsigned MAX_SEGMENT_SIZE = 32 * 1024;
+
+    ~blob()
+    {
+        if (m_blob) m_blob->release();
+    }
+
+    ISC_QUAD id() const
+    {
+        return m_id;
+    }
+
+    void close()
+    {
+        try
+        {
+            m_blob->close(&m_status);
+            m_blob = nullptr;
+        }
+        CATCH_SQL
+    }
+
+    int64_t info(unsigned char item)
+    {
+        try
+        {
+            unsigned char items[] = { 0, isc_info_end };
+            unsigned char buffer[16];
+            items[0] = item;
+            m_blob->getInfo(&m_status, sizeof(items), items, sizeof(buffer), buffer);
+            short length = isc_portable_integer(buffer + 1, 2);
+            return isc_portable_integer(buffer + 3, length);
+        }
+        CATCH_SQL
+    }
+
+    int64_t num_segments()
+    {
+        return info(isc_info_blob_num_segments);
+    }
+
+    int64_t max_segment()
+    {
+        return info(isc_info_blob_max_segment);
+    }
+
+    int64_t total_length()
+    {
+        return info(isc_info_blob_total_length);
+    }
+
+    int64_t type()
+    {
+        return info(isc_info_blob_type);
+    }
+
+    octets get(unsigned int length)
+    {
+        octets buffer(length);
+        try
+        {
+            unsigned segment_length{};
+            int rc = m_blob->getSegment(&m_status, length, buffer.data(), &segment_length);
+            if (buffer.size() > segment_length)
+                buffer.resize(segment_length);
+            return buffer;
+        }
+        CATCH_SQL
+    }
+
+    octets get()
+    {
+        using namespace Firebird;
+        const unsigned length = MAX_SEGMENT_SIZE;
+        octets buffer(length);
+        octets result;
+        try
+        {
+            for (;;)
+            {
+                unsigned segment_length{};
+                int rc = m_blob->getSegment(&m_status, length, buffer.data(), &segment_length);
+                if (rc != IStatus::RESULT_OK && rc != IStatus::RESULT_SEGMENT)
+                    break;
+                // stackoverflow says this is the best vector append
+                result.insert(result.end(), buffer.cbegin(), buffer.cbegin() + segment_length);
+            }
+
+            return result;
+        }
+        CATCH_SQL
+    }
+
+    std::string get_string()
+    {
+        auto buffer = get();
+        return std::string{ buffer.cbegin(), buffer.cend() };
+    }
+
+    blob& put(const void* buffer, unsigned length)
+    {
+        try
+        {
+            if (length <= MAX_SEGMENT_SIZE)
+                m_blob->putSegment(&m_status, length, buffer);
+            else
+            {
+                unsigned pos = 0;
+                const unsigned char* ptr = static_cast<const unsigned char*>(buffer);
+                while (pos < length)
+                {
+                    unsigned len = std::min(MAX_SEGMENT_SIZE, length - pos);
+                    m_blob->putSegment(&m_status, len, ptr + pos);
+                    pos += len;
+                }
+            }
+            return *this;
+        }
+        CATCH_SQL
+    }
+
+    blob& put(octets const& buffer)
+    {
+        put(buffer.data(), static_cast<unsigned>(buffer.size()));
+        return *this;
+    }
+
+    blob& put_string(std::string const& buffer)
+    {
+        try
+        {
+            if (buffer.size() <= MAX_SEGMENT_SIZE)
+                m_blob->putSegment(&m_status, static_cast<unsigned>(buffer.size()), buffer.data());
+            else
+            {
+                unsigned pos = 0;
+                const unsigned size = static_cast<unsigned>(buffer.size());
+                while (pos < size)
+                {
+                    unsigned length = std::min(MAX_SEGMENT_SIZE, size - pos);
+                    m_blob->putSegment(&m_status, length, buffer.data() + pos);
+                    pos += length;
+                }
+            }
+            return *this;
+        }
+        CATCH_SQL
+    }
+
+    blob& put_string(const char* buffer)
+    {
+        auto str_length = static_cast<unsigned>(strlen(buffer));
+        try
+        {
+            if (str_length <= MAX_SEGMENT_SIZE)
+                m_blob->putSegment(&m_status, str_length, buffer);
+            else
+            {
+                unsigned pos = 0;
+                while (pos < str_length)
+                {
+                    unsigned length = std::min(MAX_SEGMENT_SIZE, str_length - pos);
+                    m_blob->putSegment(&m_status, length, buffer + pos);
+                    pos += length;
+                }
+            }
+            return *this;
+        }
+        CATCH_SQL
+    }
+
+private:
+    friend class transaction;
+    blob(Firebird::IAttachment* att, Firebird::ITransaction* tra, Firebird::ThrowStatusWrapper& status)
+        : m_status{ status }, m_blob{}, m_id{}
+    {
+        m_blob = att->createBlob(&m_status, tra, &m_id, 0, NULL);
+    }
+
+    blob(Firebird::IAttachment* att, Firebird::ITransaction* tra, Firebird::ThrowStatusWrapper& status, ISC_QUAD& id)
+        : m_status{ status }, m_blob{}, m_id{ id }
+    {
+        m_blob = att->openBlob(&m_status, tra, &m_id, 0, NULL);
+    }
+
+private:
+    Firebird::ThrowStatusWrapper& m_status;
+    Firebird::IBlob* m_blob;
+    ISC_QUAD m_id;
+};
+
+
+
 // internal implementations
 namespace _detail {
-
-static inline Firebird::IMaster* master()
-{
-    static Firebird::IMaster* _master = Firebird::fb_get_master_interface();
-    return _master;
-}
-
-static inline Firebird::IUtil* util()
-{
-    static Firebird::IUtil* _util = master()->getUtilInterface();
-    return _util;
-}
 
 template <
     typename T,
@@ -216,6 +425,7 @@ struct iparam
         int64_t int64_value;
         float float_value;
         double double_value;
+        ISC_QUAD quad_value;
     };
 };
 
@@ -311,6 +521,13 @@ public:
         params.push_back(p);
     }
 
+    void add(blob const& x)
+    {
+        iparam p{ SQL_BLOB, 0 };
+        p.quad_value = x.id();
+        params.push_back(p);
+    }
+
     void add(nullptr_t)
     {
         iparam p{ SQL_NULL, 0 };
@@ -401,6 +618,10 @@ public:
                 cast<double>(offset) = param.double_value;
                 break;
 
+            case SQL_BLOB:
+                cast<ISC_QUAD>(offset) = param.quad_value;
+                break;
+
             case SQL_TEXT:  // no break
             case SQL_VARYING:
                 memcpy(((void*)offset), param.str_value.c_str(), param.str_value.size());
@@ -437,14 +658,6 @@ class executor;
 
 
 // sql entities implementation
-
-
-// sub-entities are rely on upper parties, ensure it's liveness
-class connection;
-class transaction;
-class statement;
-class result_set;
-class field;
 
 
 // not owns any other entities, may be freely copied/moved
@@ -554,6 +767,13 @@ private:
 
 
 #define CHECK_TYPE(x)   if (m_type != (x)) throw logic_error{ "Wrong type: " #x }
+
+template <>
+inline ISC_QUAD field::as()
+{
+    CHECK_TYPE(SQL_BLOB);
+    return cast<ISC_QUAD>();
+}
 
 template <>
 inline bool field::as()
@@ -1236,6 +1456,35 @@ public:
         return _detail::executor::cursor(params, m_att, m_status, m_tra, sql);
     }
 
+    /// <summary>
+    /// Produce blob object prepared for writing
+    /// </summary>
+    /// <returns>blob object</returns>
+    blob create_blob()
+    {
+        try
+        {
+            return blob{ m_att, m_tra, m_status };
+        }
+        CATCH_SQL
+    }
+
+    /// <summary>
+    /// Produce blob object prepared for reading
+    /// </summary>
+    /// <param name="rs">- result set</param>
+    /// <param name="column_number">- blob column number</param>
+    /// <returns>blob object</returns>
+    blob open_blob(result_set const& rs, unsigned column_number)
+    {
+        auto id = rs.get(column_number).as<ISC_QUAD>();
+        try
+        {
+            return blob{ m_att, m_tra, m_status, id };
+        }
+        CATCH_SQL
+    }
+
 private:
     transaction(Firebird::IAttachment* att, Firebird::ThrowStatusWrapper& status)
         : m_att{ att }, m_status{ status }
@@ -1383,7 +1632,7 @@ public:
         catch (const Firebird::FbException& ex)
         {
             // XXX: what to do here
-            char buf[FB_EXCEPTION_BUFFER_SIZE];
+            char buf[FBSQLXX_EXCEPTION_BUFFER_SIZE];
             _detail::util()->formatStatus(buf, sizeof(buf), ex.getStatus());
             //std::cerr << buf << std::endl;
         }
