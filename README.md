@@ -172,7 +172,8 @@ void write_blob(fbsqlxx::connection& conn, long id, fbsqlxx::octets const& data)
     auto tr0 = conn.start();
     auto blob0 = tr0.create_blob();  // this blob object is for write only
     blob0.put(data);
-    blob0.close();     // IMPORTANT! blob0 object becomes unusable, but it contains a BLOB ID to insert or update operations
+    blob0.close();     // IMPORTANT! blob0 object becomes unusable, but it contains a BLOB ID
+    // to insert or update operations
 
     tr0.execute("insert into btable values(?, ?)", id, blob0);  // use blob object itself as a parameter
     // or tr0.execute("update or insert into btable(id, blb0) values(?, ?) matching(id)", id, blob0);
@@ -181,7 +182,8 @@ void write_blob(fbsqlxx::connection& conn, long id, fbsqlxx::octets const& data)
     // there are some additional 'put' methods
     // blob0.put({1, 2, 3, 0xff, 006}); - put list of bytes
     // blob0.put(buffer, buffer_length); - put bytes from raw buffer
-    // blob0.put(data1).put("end").put({'\n'}).close(); - chain put operations, all data would be concatenated
+    // blob0.put(data1).put_string("end").put({'\n'}).close(); - chain put operations, all data would
+    // be concatenated
     // blob0.put_string(std::string{"string blob"});
     // blob0.put_string("another string blob");
     tr0.commit();
