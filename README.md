@@ -163,6 +163,50 @@ void action_query(fbsql::transaction const& tr0)
 }
 ```
 
+## BLOBs
+There are two operations with blobs, to put some data to a database (insert or update), and to get it back (select). A transaction object has methods ```transaction.create_blob()``` and ```transaction.open_blob()``` to produce corresponding kind of blob objects. For example:
+
+```c++
+void write_blob(fbsqlxx::connection& conn, long id, fbsqlxx::octets const& data)
+{
+    auto tr0 = conn.start();
+    auto blob0 = tr0.create_blob();  // this blob object is for write only
+    blob0.put(data);
+    blob0.close();     // IMPORTANT! blob0 object becomes unusable, but it contains a BLOB ID to insert or update operations
+
+    tr0.execute("insert into btable values(?, ?)", id, blob0);  // use blob object itself as a parameter
+    // or tr0.execute("update or insert into btable(id, blb0) values(?, ?) matching(id)", id, blob0);
+    // or tr0.execute("update btable set blb0 = ? where id = ?", blob0, id);
+    // ...
+    // there are some additional 'put' methods
+    // blob0.put({1, 2, 3, 0xff, 006}); - put list of bytes
+    // blob0.put(buffer, buffer_length); - put bytes from raw buffer
+    // blob0.put(data1).put("end").put({'\n'}).close(); - chain put operations, all data would be concatenated
+    // blob0.put_string(std::string{"string blob"});
+    // blob0.put_string("another string blob");
+    tr0.commit();
+}
+
+void read_blob(fbsqlxx::connection& conn, long id)
+{
+    auto tr0 = conn.start();
+    auto rs0 = tr0.cursor("select id, blob0 from btable where id = ?", id);
+    if (rs0.next())
+    {
+        auto [type, subtype] = rs0.get(1).type();  // 1 - column number of blob0
+        auto b0 = tr0.open_blob(rs0, 1);  // this blob object is for read only
+        auto total_length = b0.total_length();  // blob contents length in bytes
+        auto value = b0.get();  // container with full blob contents
+        // ...
+        // there are some additional 'get' methods
+        // std::string str = b0.get_string();
+        // auto value = b0.get(16); - get next 16 bytes from blob
+        // a blob is like a file, we can read from it until the end of data
+    }
+    tr0.commit();
+}
+```
+
 ## Database metadata
 A library provides the thin layer of abstraction of database metadata requests, avoiding use of arrays etc, and helps to parse the replies incoming. Let's see how it looks like.
 
