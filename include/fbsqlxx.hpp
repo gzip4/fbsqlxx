@@ -480,6 +480,9 @@ struct iparam
         ISC_TIMESTAMP timestamp_value;
         ISC_TIMESTAMP_TZ timestamp_tz_value;
         ISC_TIMESTAMP_TZ_EX timestamp_tz_ex_value;
+        FB_DEC16 dec16_value;
+        FB_DEC34 dec34_value;
+        FB_I128 i128_value;
     };
 };
 
@@ -544,6 +547,27 @@ public:
     {
         iparam p{ SQL_DOUBLE, 0 };
         p.double_value = x;
+        params.push_back(p);
+    }
+
+    void add(FB_DEC16 x)
+    {
+        iparam p{ SQL_DEC16, 0 };
+        p.dec16_value = x;
+        params.push_back(p);
+    }
+
+    void add(FB_DEC34 x)
+    {
+        iparam p{ SQL_DEC34, 0 };
+        p.dec34_value = x;
+        params.push_back(p);
+    }
+
+    void add(FB_I128 x)
+    {
+        iparam p{ SQL_INT128, 0 };
+        p.i128_value = x;
         params.push_back(p);
     }
 
@@ -658,8 +682,6 @@ public:
                 builder->setType(&status, i, param.type + 1);
             }
 
-            builder->setSubType(&status, i, param.subtype);
-
             if (param.type == SQL_TEXT)
             {
                 auto length = static_cast<unsigned>(param.str_value.size());
@@ -670,6 +692,9 @@ public:
                 auto length = static_cast<unsigned>(param.octets_value.size());
                 builder->setLength(&status, i, length);
             }
+
+            if (param.type == SQL_BLOB)
+                builder->setSubType(&status, i, param.subtype);
         }
 
         auto imeta = builder->getMetadata(&status);
@@ -677,10 +702,9 @@ public:
 
         for (unsigned i = 0; i < count; ++i)
         {
-            void* offset = &buffer[imeta->getOffset(&status, i)];
+            unsigned char* offset = &buffer[imeta->getOffset(&status, i)];
             short* null = (short*)&buffer[imeta->getNullOffset(&status, i)];
             auto const& param = params[i];
-
             auto len = imeta->getLength(&status, i);
 
             *null = (param.type == SQL_NULL) ? -1 : 0;
@@ -711,6 +735,18 @@ public:
                 cast<double>(offset) = param.double_value;
                 break;
 
+            case SQL_DEC16:
+                cast<FB_DEC16>(offset) = param.dec16_value;
+                break;
+
+            case SQL_DEC34:
+                cast<FB_DEC34>(offset) = param.dec34_value;
+                break;
+
+            case SQL_INT128:
+                cast<FB_I128>(offset) = param.i128_value;
+                break;
+
             case SQL_BLOB:
                 cast<ISC_QUAD>(offset) = param.quad_value;
                 break;
@@ -735,9 +771,13 @@ public:
                 cast<ISC_TIMESTAMP_TZ>(offset) = param.timestamp_tz_value;
                 break;
 
-            case SQL_TEXT:  // no break
+            case SQL_TEXT:
+                memcpy(((void*)offset), param.str_value.data(), param.str_value.size());
+                break;
+
             case SQL_VARYING:
-                memcpy(((void*)offset), param.str_value.c_str(), param.str_value.size());
+                cast<short>(offset) = static_cast<short>(param.str_value.size());
+                memcpy(offset + 2, param.str_value.data(), param.str_value.size());
                 break;
 
             case MY_SQL_OCTETS:
@@ -749,13 +789,12 @@ public:
 
             default:
             {
-                std::string msg = "Not implemented type: ";
+                std::string msg = "Not implemented parameter type: ";
                 msg += type_name(param.type);
-                throw error(msg.data());
+                throw logic_error(msg.data());
             }
-            break;
-            }
-        }
+            } // switch
+        } // for loop
 
         return imeta;
     }
@@ -891,34 +930,6 @@ inline ISC_QUAD field::as()
 }
 
 template <>
-inline FB_DEC16 field::as()
-{
-    CHECK_TYPE(SQL_DEC16);
-    return cast<FB_DEC16>();
-}
-
-template <>
-inline FB_DEC34 field::as()
-{
-    CHECK_TYPE(SQL_DEC34);
-    return cast<FB_DEC34>();
-}
-
-template <>
-inline FB_I128 field::as()
-{
-    CHECK_TYPE(SQL_INT128);
-    return cast<FB_I128>();
-}
-
-template <>
-inline bool field::as()
-{
-    CHECK_TYPE(SQL_BOOLEAN);
-    return static_cast<bool>(cast<char>());
-}
-
-template <>
 inline date field::as()
 {
     switch (m_type)
@@ -1050,6 +1061,13 @@ inline timestamp_tz field::as()
 }
 
 template <>
+inline bool field::as()
+{
+    CHECK_TYPE(SQL_BOOLEAN);
+    return static_cast<bool>(cast<char>());
+}
+
+template <>
 inline short field::as()
 {
     switch (m_type)
@@ -1114,6 +1132,26 @@ inline int64_t field::as()
 }
 
 template <>
+inline FB_I128 field::as()
+{
+    switch (m_type)
+    {
+    case SQL_INT128:
+        return cast<FB_I128>();
+    case SQL_INT64:
+        return { cast<uint64_t>(), 0 };
+    case SQL_LONG:
+        return { cast<unsigned long>(), 0 };
+    case SQL_SHORT:
+        return { cast<unsigned short>(), 0 };
+    case SQL_BOOLEAN:
+        return { cast<unsigned char>(), 0 };
+    }
+
+    INVALID_CONVERSION(m_type, "INT128");
+}
+
+template <>
 inline double field::as()
 {
     switch (m_type)
@@ -1149,6 +1187,20 @@ inline float field::as()
     }
 
     INVALID_CONVERSION(m_type, "FLOAT");
+}
+
+template <>
+inline FB_DEC16 field::as()
+{
+    CHECK_TYPE(SQL_DEC16);
+    return cast<FB_DEC16>();
+}
+
+template <>
+inline FB_DEC34 field::as()
+{
+    CHECK_TYPE(SQL_DEC34);
+    return cast<FB_DEC34>();
 }
 
 template <>
