@@ -843,7 +843,7 @@ private:
     {
         int scale = m_meta->getScale(&m_status, m_index);
         if (scale != 0)
-            return static_cast<float>(value) / std::powf(10.0f, -static_cast<float>(scale));
+            return static_cast<float>(value) / std::powf(10.0f, static_cast<float>(-scale));
         else
             return static_cast<float>(value);
     }
@@ -880,6 +880,8 @@ private:
 
 
 #define CHECK_TYPE(x)   if (m_type != (x)) throw logic_error{ "Wrong type: " #x }
+
+#define INVALID_CONVERSION(from, to) do{std::string msg{"Invalid conversion from type "};msg+=type_name(m_type)+" to " to;throw logic_error{msg.c_str()};}while(0)
 
 template <>
 inline ISC_QUAD field::as()
@@ -949,9 +951,7 @@ inline date field::as()
         break;
     }
 
-    std::string msg{ "Invalid conversion from type <" };
-    msg += type_name(m_type) + "> to date";
-    throw logic_error{ msg.c_str() };
+    INVALID_CONVERSION(m_type, "DATE");
 }
 
 template <>
@@ -966,7 +966,6 @@ inline time field::as()
         _detail::util()->decodeTime(isc_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
         return t;
     }
-
     case SQL_TIMESTAMP:
     {
         ISC_TIMESTAMP isc_ts = cast<ISC_TIMESTAMP>();
@@ -974,7 +973,6 @@ inline time field::as()
         _detail::util()->decodeTime(isc_ts.timestamp_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
         return t;
     }
-
     case SQL_TIMESTAMP_TZ:
     {
         ISC_TIMESTAMP_TZ isc_ts = cast<ISC_TIMESTAMP_TZ>();
@@ -982,14 +980,9 @@ inline time field::as()
         _detail::util()->decodeTime(isc_ts.utc_timestamp.timestamp_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
         return t;
     }
+    } // switch
 
-    default:
-        break;
-    }
-
-    std::string msg{ "Invalid conversion from type <" };
-    msg += type_name(m_type) + "> to time";
-    throw logic_error{ msg.c_str() };
+    INVALID_CONVERSION(m_type, "TIME");
 }
 
 template <>
@@ -1004,7 +997,6 @@ inline time_tz field::as()
         _detail::util()->decodeTime(isc_time.utc_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
         return time_tz{ t, isc_time.time_zone };
     }
-
     case SQL_TIMESTAMP_TZ:
     {
         ISC_TIMESTAMP_TZ isc_ts = cast<ISC_TIMESTAMP_TZ>();
@@ -1012,14 +1004,9 @@ inline time_tz field::as()
         _detail::util()->decodeTime(isc_ts.utc_timestamp.timestamp_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
         return time_tz{ t, isc_ts.time_zone };
     }
+    } // switch
 
-    default:
-        break;
-    }
-
-    std::string msg{ "Invalid conversion from type <" };
-    msg += type_name(m_type) + "> to time_tz";
-    throw logic_error{ msg.c_str() };
+    INVALID_CONVERSION(m_type, "TIME WITH TIME ZONE");
 }
 
 template <>
@@ -1036,7 +1023,6 @@ inline timestamp field::as()
         _detail::util()->decodeTime(isc_ts.timestamp_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
         return timestamp{ d, t };
     }
-
     case SQL_TIMESTAMP_TZ:
     {
         ISC_TIMESTAMP_TZ isc_ts = cast<ISC_TIMESTAMP_TZ>();
@@ -1046,14 +1032,9 @@ inline timestamp field::as()
         _detail::util()->decodeTime(isc_ts.utc_timestamp.timestamp_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
         return timestamp{ d, t };
     }
+    } // switch
 
-    default:
-        break;
-    }
-
-    std::string msg{ "Invalid conversion from type <" };
-    msg += type_name(m_type) + "> to timestamp";
-    throw logic_error{ msg.c_str() };
+    INVALID_CONVERSION(m_type, "TIMESTAMP");
 }
 
 template <>
@@ -1075,26 +1056,11 @@ inline short field::as()
     {
     case SQL_SHORT:
         return cast<short>();
-
-    case SQL_DOUBLE:
-        return static_cast<short>(cast<double>());
-
-    case SQL_FLOAT:
-        return static_cast<short>(cast<float>());
-
-    case SQL_INT64:
-        return static_cast<short>(cast<int64_t>());
-
-    case SQL_LONG:
-        return static_cast<short>(cast<long>());
-
-    default:
-        break;
+    case SQL_BOOLEAN:
+        return cast<unsigned char>();
     }
 
-    std::string msg{ "Invalid conversion from type <" };
-    msg += type_name(m_type) + "> to smallint";
-    throw logic_error{ msg.c_str() };
+    INVALID_CONVERSION(m_type, "SMALLINT");
 }
 
 template <>
@@ -1104,26 +1070,29 @@ inline long field::as()
     {
     case SQL_LONG:
         return cast<long>();
-
-    case SQL_DOUBLE:
-        return static_cast<long>(cast<double>());
-
-    case SQL_FLOAT:
-        return static_cast<long>(cast<float>());
-
-    case SQL_INT64:
-        return static_cast<long>(cast<int64_t>());
-
     case SQL_SHORT:
-        return static_cast<long>(cast<short>());
-
-    default:
-        break;
+        return cast<short>();
+    case SQL_BOOLEAN:
+        return cast<unsigned char>();
     }
 
-    std::string msg{ "Invalid conversion from type <" };
-    msg += type_name(m_type) + "> to int";
-    throw logic_error{ msg.c_str() };
+    INVALID_CONVERSION(m_type, "INTEGER");
+}
+
+template <>
+inline int field::as()
+{
+    switch (m_type)
+    {
+    case SQL_LONG:
+        return cast<int>();
+    case SQL_SHORT:
+        return cast<short>();
+    case SQL_BOOLEAN:
+        return cast<unsigned char>();
+    }
+
+    INVALID_CONVERSION(m_type, "INTEGER");
 }
 
 template <>
@@ -1133,26 +1102,15 @@ inline int64_t field::as()
     {
     case SQL_INT64:
         return cast<int64_t>();
-
-    case SQL_DOUBLE:
-        return static_cast<int64_t>(cast<double>());
-
-    case SQL_FLOAT:
-        return static_cast<int64_t>(cast<float>());
-
     case SQL_LONG:
-        return static_cast<int64_t>(cast<long>());
-
+        return cast<long>();
     case SQL_SHORT:
-        return static_cast<int64_t>(cast<short>());
-
-    default:
-        break;
+        return cast<short>();
+    case SQL_BOOLEAN:
+        return cast<unsigned char>();
     }
 
-    std::string msg{ "Invalid conversion from type <" };
-    msg += type_name(m_type) + "> to bigint";
-    throw logic_error{ msg.c_str() };
+    INVALID_CONVERSION(m_type, "BIGINT");
 }
 
 template <>
@@ -1162,26 +1120,17 @@ inline double field::as()
     {
     case SQL_DOUBLE:
         return cast<double>();
-
     case SQL_FLOAT:
-        return static_cast<double>(cast<float>());
-
+        return cast<float>();
     case SQL_INT64:
         return cvt_double(cast<int64_t>());
-
     case SQL_LONG:
         return cvt_double(cast<long>());
-
     case SQL_SHORT:
         return cvt_double(cast<short>());
-
-    default:
-        break;
     }
 
-    std::string msg{ "Invalid conversion from <" };
-    msg += type_name(m_type) + "> to double";
-    throw logic_error{ msg.c_str() };
+    INVALID_CONVERSION(m_type, "DOUBLE PRECISION");
 }
 
 template <>
@@ -1189,28 +1138,17 @@ inline float field::as()
 {
     switch (m_type)
     {
-    case SQL_DOUBLE:
-        return static_cast<float>(cast<double>());
-
     case SQL_FLOAT:
         return cast<float>();
-
     case SQL_INT64:
         return cvt_float(cast<int64_t>());
-
     case SQL_LONG:
         return cvt_float(cast<long>());
-
     case SQL_SHORT:
         return cvt_float(cast<short>());
-
-    default:
-        break;
     }
 
-    std::string msg{ "Invalid conversion from type <" };
-    msg += type_name(m_type) + "> to float";
-    throw logic_error{ msg.c_str() };
+    INVALID_CONVERSION(m_type, "FLOAT");
 }
 
 template <>
@@ -1225,142 +1163,34 @@ inline std::string field::as()
         const char* to = from + length;
         return std::string{ from, to };
     }
-
     case SQL_TEXT:
     {
         const char* from = (const char*)&m_buffer[m_offset];
         const char* to = from + m_meta->getLength(&m_status, m_index);
         return std::string{ from, to };
     }
+    } // switch
 
-    case SQL_BOOLEAN:
-    {
-        return as<bool>() ? "true" : "false";
-    }
-
-    case SQL_FLOAT:
-    {
-        return std::to_string(as<float>());
-    }
-
-    case SQL_DOUBLE:
-    {
-        return std::to_string(as<double>());
-    }
-
-    case SQL_SHORT:
-    {
-        std::string str = std::to_string(as<short>());
-        int scale = -m_meta->getScale(&m_status, m_index);
-        return cvt_string(str, scale);
-    }
-
-    case SQL_LONG:
-    {
-        std::string str = std::to_string(as<long>());
-        int scale = -m_meta->getScale(&m_status, m_index);
-        return cvt_string(str, scale);
-    }
-
-    case SQL_INT64:
-    {
-        std::string str = std::to_string(as<int64_t>());
-        int scale = -m_meta->getScale(&m_status, m_index);
-        return cvt_string(str, scale);
-    }
-
-    case SQL_TYPE_DATE:
-    {
-        ISC_DATE isc_date = cast<ISC_DATE>();
-        date d;
-        _detail::util()->decodeDate(isc_date, &d.year, &d.month, &d.day);
-        char buffer[32];
-        snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d", d.year, d.month, d.day);
-        return std::string{ buffer };
-    }
-
-    case SQL_TYPE_TIME:
-    {
-        ISC_TIME isc_time = cast<ISC_TIME>();
-        time t;
-        _detail::util()->decodeTime(isc_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
-        char buffer[32];
-        snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d", t.hours, t.minutes, t.seconds);
-        return std::string{ buffer };
-    }
-
-    case SQL_TIME_TZ:
-    {
-        using namespace Firebird;
-        auto status = _detail::make_autodestroy(_detail::master()->getStatus());
-        ThrowStatusWrapper wrapper{ &status };
-        ISC_TIME_TZ isc_time = cast<ISC_TIME_TZ>();
-        time t;
-        try
-        {
-            char time_zone_buffer[64];
-            _detail::util()->decodeTimeTz(&wrapper, &isc_time, &t.hours, &t.minutes, &t.seconds, &t.fractions, sizeof(time_zone_buffer), time_zone_buffer);
-            char buffer[128];
-            snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d %s", t.hours, t.minutes, t.seconds, time_zone_buffer);
-            return std::string{ buffer };
-        }
-        CATCH_SQL
-    }
-
-    case SQL_TIMESTAMP:
-    {
-        ISC_TIMESTAMP ts = cast<ISC_TIMESTAMP>();
-        date d;
-        time t;
-        _detail::util()->decodeDate(ts.timestamp_date, &d.year, &d.month, &d.day);
-        _detail::util()->decodeTime(ts.timestamp_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
-
-        char buffer[32];
-        snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d %02d:%02d:%02d", d.year, d.month, d.day, t.hours, t.minutes, t.seconds);
-        return std::string{ buffer };
-    }
-
-    case SQL_TIMESTAMP_TZ:
-    {
-        using namespace Firebird;
-        auto status = _detail::make_autodestroy(_detail::master()->getStatus());
-        ThrowStatusWrapper wrapper{ &status };
-        ISC_TIMESTAMP_TZ ts = cast<ISC_TIMESTAMP_TZ>();
-        date d;
-        time t;
-        try
-        {
-            char time_zone_buffer[64];
-            _detail::util()->decodeTimeStampTz(&wrapper, &ts, &d.year, &d.month, &d.day,
-                &t.hours, &t.minutes, &t.seconds, &t.fractions,
-                sizeof(time_zone_buffer), time_zone_buffer);
-
-            char buffer[128];
-            snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d %02d:%02d:%02d %s", d.year, d.month, d.day, t.hours, t.minutes, t.seconds, time_zone_buffer);
-            return std::string{ buffer };
-        }
-        CATCH_SQL
-    }
-
-    default:
-        break;
-    }
-
-    std::string msg{ "Invalid conversion from type <" };
-    msg += type_name(m_type) + "> to string";
-    throw logic_error{ msg.c_str() };
+    INVALID_CONVERSION(m_type, "TEXT");
 }
 
 template <>
 inline octets field::as()
 {
+    if (m_type == SQL_VARYING)
+    {
+        short length = cast<short>();
+        const char* from = (const char*)&m_buffer[m_offset + sizeof(short)];
+        const char* to = from + length;
+        return octets{ from, to };
+    }
     const unsigned char* from = (const unsigned char*)&m_buffer[m_offset];
     const unsigned char* to = from + m_meta->getLength(&m_status, m_index);
     return octets{ from, to };
 }
 
 #undef CHECK_TYPE
-
+#undef INVALID_CONVERSION
 
 
 class result_set final
