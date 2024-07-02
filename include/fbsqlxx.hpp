@@ -23,6 +23,53 @@ namespace fbsqlxx {
 // types
 using octets = std::vector<unsigned char>;
 
+struct date
+{
+    unsigned year;
+    unsigned month;
+    unsigned day;
+};
+
+struct time
+{
+    unsigned hours;
+    unsigned minutes;
+    unsigned seconds;
+    unsigned fractions;
+};
+
+struct time_tz
+{
+    time utc_time;
+    unsigned short time_zone;
+};
+
+struct time_tz_ex
+{
+    time utc_time;
+    unsigned short time_zone;
+    short ext_offset;
+};
+
+struct timestamp
+{
+    date date;
+    time time;
+};
+
+struct timestamp_tz
+{
+    timestamp utc_timestamp;
+    unsigned short time_zone;
+};
+
+struct timestamp_tz_ex
+{
+    timestamp utc_timestamp;
+    unsigned short time_zone;
+    short ext_offset;
+};
+
 
 // exceptions
 class error : public std::runtime_error
@@ -426,6 +473,13 @@ struct iparam
         float float_value;
         double double_value;
         ISC_QUAD quad_value;
+        ISC_DATE date_value;
+        ISC_TIME time_value;
+        ISC_TIME_TZ time_tz_value;
+        ISC_TIME_TZ_EX time_tz_ex_value;
+        ISC_TIMESTAMP timestamp_value;
+        ISC_TIMESTAMP_TZ timestamp_tz_value;
+        ISC_TIMESTAMP_TZ_EX timestamp_tz_ex_value;
     };
 };
 
@@ -511,6 +565,45 @@ public:
     {
         iparam p{ SQL_TEXT, 0 };
         p.str_value = x;
+        params.push_back(p);
+    }
+
+    void add(date x)
+    {
+        iparam p{ SQL_TYPE_DATE, 0 };
+        p.date_value = util()->encodeDate(x.year, x.month, x.day);
+        params.push_back(p);
+    }
+
+    void add(time x)
+    {
+        iparam p{ SQL_TYPE_TIME, 0 };
+        p.time_value = util()->encodeTime(x.hours, x.minutes, x.seconds, x.fractions);
+        params.push_back(p);
+    }
+
+    void add(time_tz x)
+    {
+        iparam p{ SQL_TIME_TZ, 0 };
+        p.time_tz_value.utc_time = util()->encodeTime(x.utc_time.hours, x.utc_time.minutes, x.utc_time.seconds, x.utc_time.fractions);
+        p.time_tz_value.time_zone = x.time_zone;
+        params.push_back(p);
+    }
+
+    void add(timestamp x)
+    {
+        iparam p{ SQL_TIMESTAMP, 0 };
+        p.timestamp_value.timestamp_date = util()->encodeDate(x.date.year, x.date.month, x.date.day);
+        p.timestamp_value.timestamp_time = util()->encodeTime(x.time.hours, x.time.minutes, x.time.seconds, x.time.fractions);
+        params.push_back(p);
+    }
+
+    void add(timestamp_tz x)
+    {
+        iparam p{ SQL_TIMESTAMP_TZ, 0 };
+        p.timestamp_tz_value.utc_timestamp.timestamp_date = util()->encodeDate(x.utc_timestamp.date.year, x.utc_timestamp.date.month, x.utc_timestamp.date.day);
+        p.timestamp_tz_value.utc_timestamp.timestamp_time = util()->encodeTime(x.utc_timestamp.time.hours, x.utc_timestamp.time.minutes, x.utc_timestamp.time.seconds, x.utc_timestamp.time.fractions);
+        p.timestamp_tz_value.time_zone = x.time_zone;
         params.push_back(p);
     }
 
@@ -620,6 +713,26 @@ public:
 
             case SQL_BLOB:
                 cast<ISC_QUAD>(offset) = param.quad_value;
+                break;
+
+            case SQL_TYPE_DATE:
+                cast<ISC_DATE>(offset) = param.date_value;
+                break;
+
+            case SQL_TYPE_TIME:
+                cast<ISC_TIME>(offset) = param.time_value;
+                break;
+
+            case SQL_TIME_TZ:
+                cast<ISC_TIME_TZ>(offset) = param.time_tz_value;
+                break;
+
+            case SQL_TIMESTAMP:
+                cast<ISC_TIMESTAMP>(offset) = param.timestamp_value;
+                break;
+
+            case SQL_TIMESTAMP_TZ:
+                cast<ISC_TIMESTAMP_TZ>(offset) = param.timestamp_tz_value;
                 break;
 
             case SQL_TEXT:  // no break
@@ -776,10 +889,183 @@ inline ISC_QUAD field::as()
 }
 
 template <>
+inline FB_DEC16 field::as()
+{
+    CHECK_TYPE(SQL_DEC16);
+    return cast<FB_DEC16>();
+}
+
+template <>
+inline FB_DEC34 field::as()
+{
+    CHECK_TYPE(SQL_DEC34);
+    return cast<FB_DEC34>();
+}
+
+template <>
+inline FB_I128 field::as()
+{
+    CHECK_TYPE(SQL_INT128);
+    return cast<FB_I128>();
+}
+
+template <>
 inline bool field::as()
 {
     CHECK_TYPE(SQL_BOOLEAN);
     return static_cast<bool>(cast<char>());
+}
+
+template <>
+inline date field::as()
+{
+    switch (m_type)
+    {
+    case SQL_TYPE_DATE:
+    {
+        ISC_DATE isc_date = cast<ISC_DATE>();
+        date d;
+        _detail::util()->decodeDate(isc_date, &d.year, &d.month, &d.day);
+        return d;
+    }
+
+    case SQL_TIMESTAMP:
+    {
+        ISC_TIMESTAMP isc_ts = cast<ISC_TIMESTAMP>();
+        date d;
+        _detail::util()->decodeDate(isc_ts.timestamp_date, &d.year, &d.month, &d.day);
+        return d;
+    }
+
+    case SQL_TIMESTAMP_TZ:
+    {
+        ISC_TIMESTAMP_TZ isc_ts = cast<ISC_TIMESTAMP_TZ>();
+        date d;
+        _detail::util()->decodeDate(isc_ts.utc_timestamp.timestamp_date, &d.year, &d.month, &d.day);
+        return d;
+    }
+
+    default:
+        break;
+    }
+
+    std::string msg{ "Invalid conversion from type <" };
+    msg += type_name(m_type) + "> to date";
+    throw logic_error{ msg.c_str() };
+}
+
+template <>
+inline time field::as()
+{
+    switch (m_type)
+    {
+    case SQL_TYPE_TIME:
+    {
+        ISC_TIME isc_time = cast<ISC_TIME>();
+        time t;
+        _detail::util()->decodeTime(isc_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
+        return t;
+    }
+
+    case SQL_TIMESTAMP:
+    {
+        ISC_TIMESTAMP isc_ts = cast<ISC_TIMESTAMP>();
+        time t;
+        _detail::util()->decodeTime(isc_ts.timestamp_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
+        return t;
+    }
+
+    case SQL_TIMESTAMP_TZ:
+    {
+        ISC_TIMESTAMP_TZ isc_ts = cast<ISC_TIMESTAMP_TZ>();
+        time t;
+        _detail::util()->decodeTime(isc_ts.utc_timestamp.timestamp_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
+        return t;
+    }
+
+    default:
+        break;
+    }
+
+    std::string msg{ "Invalid conversion from type <" };
+    msg += type_name(m_type) + "> to time";
+    throw logic_error{ msg.c_str() };
+}
+
+template <>
+inline time_tz field::as()
+{
+    switch (m_type)
+    {
+    case SQL_TIME_TZ:
+    {
+        ISC_TIME_TZ isc_time = cast<ISC_TIME_TZ>();
+        time t;
+        _detail::util()->decodeTime(isc_time.utc_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
+        return time_tz{ t, isc_time.time_zone };
+    }
+
+    case SQL_TIMESTAMP_TZ:
+    {
+        ISC_TIMESTAMP_TZ isc_ts = cast<ISC_TIMESTAMP_TZ>();
+        time t;
+        _detail::util()->decodeTime(isc_ts.utc_timestamp.timestamp_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
+        return time_tz{ t, isc_ts.time_zone };
+    }
+
+    default:
+        break;
+    }
+
+    std::string msg{ "Invalid conversion from type <" };
+    msg += type_name(m_type) + "> to time_tz";
+    throw logic_error{ msg.c_str() };
+}
+
+template <>
+inline timestamp field::as()
+{
+    switch (m_type)
+    {
+    case SQL_TIMESTAMP:
+    {
+        ISC_TIMESTAMP isc_ts = cast<ISC_TIMESTAMP>();
+        date d;
+        time t;
+        _detail::util()->decodeDate(isc_ts.timestamp_date, &d.year, &d.month, &d.day);
+        _detail::util()->decodeTime(isc_ts.timestamp_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
+        return timestamp{ d, t };
+    }
+
+    case SQL_TIMESTAMP_TZ:
+    {
+        ISC_TIMESTAMP_TZ isc_ts = cast<ISC_TIMESTAMP_TZ>();
+        date d;
+        time t;
+        _detail::util()->decodeDate(isc_ts.utc_timestamp.timestamp_date, &d.year, &d.month, &d.day);
+        _detail::util()->decodeTime(isc_ts.utc_timestamp.timestamp_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
+        return timestamp{ d, t };
+    }
+
+    default:
+        break;
+    }
+
+    std::string msg{ "Invalid conversion from type <" };
+    msg += type_name(m_type) + "> to timestamp";
+    throw logic_error{ msg.c_str() };
+}
+
+template <>
+inline timestamp_tz field::as()
+{
+    CHECK_TYPE(SQL_TIMESTAMP_TZ);
+    ISC_TIMESTAMP_TZ isc_ts = cast<ISC_TIMESTAMP_TZ>();
+    date d;
+    time t;
+    _detail::util()->decodeDate(isc_ts.utc_timestamp.timestamp_date, &d.year, &d.month, &d.day);
+    _detail::util()->decodeTime(isc_ts.utc_timestamp.timestamp_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
+    return timestamp_tz{ {d, t}, isc_ts.time_zone };
 }
 
 template <>
@@ -981,6 +1267,79 @@ inline std::string field::as()
         std::string str = std::to_string(as<int64_t>());
         int scale = -m_meta->getScale(&m_status, m_index);
         return cvt_string(str, scale);
+    }
+
+    case SQL_TYPE_DATE:
+    {
+        ISC_DATE isc_date = cast<ISC_DATE>();
+        date d;
+        _detail::util()->decodeDate(isc_date, &d.year, &d.month, &d.day);
+        char buffer[32];
+        snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d", d.year, d.month, d.day);
+        return std::string{ buffer };
+    }
+
+    case SQL_TYPE_TIME:
+    {
+        ISC_TIME isc_time = cast<ISC_TIME>();
+        time t;
+        _detail::util()->decodeTime(isc_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
+        char buffer[32];
+        snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d", t.hours, t.minutes, t.seconds);
+        return std::string{ buffer };
+    }
+
+    case SQL_TIME_TZ:
+    {
+        using namespace Firebird;
+        auto status = _detail::make_autodestroy(_detail::master()->getStatus());
+        ThrowStatusWrapper wrapper{ &status };
+        ISC_TIME_TZ isc_time = cast<ISC_TIME_TZ>();
+        time t;
+        try
+        {
+            char time_zone_buffer[64];
+            _detail::util()->decodeTimeTz(&wrapper, &isc_time, &t.hours, &t.minutes, &t.seconds, &t.fractions, sizeof(time_zone_buffer), time_zone_buffer);
+            char buffer[128];
+            snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d %s", t.hours, t.minutes, t.seconds, time_zone_buffer);
+            return std::string{ buffer };
+        }
+        CATCH_SQL
+    }
+
+    case SQL_TIMESTAMP:
+    {
+        ISC_TIMESTAMP ts = cast<ISC_TIMESTAMP>();
+        date d;
+        time t;
+        _detail::util()->decodeDate(ts.timestamp_date, &d.year, &d.month, &d.day);
+        _detail::util()->decodeTime(ts.timestamp_time, &t.hours, &t.minutes, &t.seconds, &t.fractions);
+
+        char buffer[32];
+        snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d %02d:%02d:%02d", d.year, d.month, d.day, t.hours, t.minutes, t.seconds);
+        return std::string{ buffer };
+    }
+
+    case SQL_TIMESTAMP_TZ:
+    {
+        using namespace Firebird;
+        auto status = _detail::make_autodestroy(_detail::master()->getStatus());
+        ThrowStatusWrapper wrapper{ &status };
+        ISC_TIMESTAMP_TZ ts = cast<ISC_TIMESTAMP_TZ>();
+        date d;
+        time t;
+        try
+        {
+            char time_zone_buffer[64];
+            _detail::util()->decodeTimeStampTz(&wrapper, &ts, &d.year, &d.month, &d.day,
+                &t.hours, &t.minutes, &t.seconds, &t.fractions,
+                sizeof(time_zone_buffer), time_zone_buffer);
+
+            char buffer[128];
+            snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d %02d:%02d:%02d %s", d.year, d.month, d.day, t.hours, t.minutes, t.seconds, time_zone_buffer);
+            return std::string{ buffer };
+        }
+        CATCH_SQL
     }
 
     default:
