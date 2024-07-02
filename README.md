@@ -245,9 +245,9 @@ std::runtime_error => fbsql::error => (fbsql::sql_error | fbsql::logic_error)
 
 - [x] Extend connection parameters list
 - [x] Add transaction parameters
-- [ ] Add other numeric datatypes
+- [x] Add other numeric datatypes
 - [x] Add blobs
 - [ ] Add charsets
-- [ ] Add date/time datatypes
+- [x] Add date/time datatypes
 - [x] Add database metadata support
 
