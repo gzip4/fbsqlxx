@@ -20,9 +20,10 @@ Create a connection to a database:
 int main()
 {
     fbsql::connection_params params{};
-    params.database = "localhost:c:/db/testdb.fdb";
+    params.database = "inet://localhost/c:/db/testdb.fdb";
     params.user = "SYSDBA";
     params.password = "masterkey";
+    // there are many other connection parameters, .database the one is required
 
     fbsql::connection conn{ params };
     // ...
